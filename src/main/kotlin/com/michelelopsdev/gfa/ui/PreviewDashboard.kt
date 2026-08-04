@@ -184,15 +184,17 @@ fun PreviewDashboard(
             }
             
             // Seleziona tutto / Deseleziona tutto
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(
-                    checked = selectedEmails.containsAll(filteredEmails.map { it.id }),
-                    onCheckedChange = { checked ->
-                        if (checked) onSelectionChanged(selectedEmails + filteredEmails.map { it.id }.toSet())
-                        else onSelectionChanged(selectedEmails - filteredEmails.map { it.id }.toSet())
-                    }
-                )
-                Text("Seleziona Tutte (Viste)", color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(
+                    onClick = { onSelectionChanged(selectedEmails + filteredEmails.map { it.id }.toSet()) }
+                ) {
+                    Text("Seleziona Tutte (Viste)")
+                }
+                OutlinedButton(
+                    onClick = { onSelectionChanged(selectedEmails - filteredEmails.map { it.id }.toSet()) }
+                ) {
+                    Text("Deseleziona Tutte")
+                }
             }
         }
 

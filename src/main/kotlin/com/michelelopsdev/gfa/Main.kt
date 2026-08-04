@@ -494,6 +494,7 @@ fun CleanupScreen(
 
     // Preview Mode States
     var previewEmails by remember { mutableStateOf<List<com.michelelopsdev.gfa.data.model.EmailData>?>(null) }
+    var showPreviewDashboard by remember { mutableStateOf(false) }
     var selectedEmails by remember { mutableStateOf<Set<String>>(emptySet()) }
     var sortColumn by remember { mutableStateOf("Data") }
     var sortAscending by remember { mutableStateOf(false) }
@@ -502,7 +503,7 @@ fun CleanupScreen(
     var isExecutingTrash by remember { mutableStateOf(false) }
     var trashProgressMsg by remember { mutableStateOf("") }
 
-    if (previewEmails != null) {
+    if (showPreviewDashboard && previewEmails != null) {
         com.michelelopsdev.gfa.ui.PreviewDashboard(
             emails = previewEmails!!,
             selectedEmails = selectedEmails,
@@ -542,8 +543,8 @@ fun CleanupScreen(
                 }
             },
             onCancel = {
-                previewEmails = null
-                selectedEmails = emptySet()
+                showPreviewDashboard = false
+                // Non cancelliamo previewEmails così resta in cache se riapre
             },
             isDarkTheme = isDarkTheme,
             isExecuting = isExecutingTrash,
@@ -590,6 +591,12 @@ fun CleanupScreen(
                     isGenerating = true
                     currentProgressMsg = "Inizializzazione..."
                     onSetStatusMessage("Analisi Gemini in corso (Fase 2)...")
+                    
+                    // Se genero nuove regole, azzero la cache della preview
+                    previewEmails = null
+                    selectedEmails = emptySet()
+                    showPreviewDashboard = false
+                    
                     coroutineScope.launch {
                         try {
                             com.michelelopsdev.gfa.domain.GeminiAnalyzerService().generateRules(
@@ -622,17 +629,22 @@ fun CleanupScreen(
                     onSetStatusMessage("Calcolo anteprima in corso...")
                     coroutineScope.launch {
                         try {
-                            val emailsToTrash = withContext(Dispatchers.IO) {
-                                val database = DatabaseFactory.createDatabase()
-                                val authManager = GmailAuthManager()
-                                val gmailService = authManager.getGmailService()
-                                val triageService = com.michelelopsdev.gfa.domain.GmailTriageService(gmailService, database.emailDao())
-                                triageService.simulateTriage()
+                            if (previewEmails == null) {
+                                val emailsToTrash = withContext(Dispatchers.IO) {
+                                    val database = DatabaseFactory.createDatabase()
+                                    val authManager = GmailAuthManager()
+                                    val gmailService = authManager.getGmailService()
+                                    val triageService = com.michelelopsdev.gfa.domain.GmailTriageService(gmailService, database.emailDao())
+                                    triageService.simulateTriage()
+                                }
+                                previewEmails = emailsToTrash
+                                selectedEmails = emailsToTrash.map { it.id }.toSet()
+                                currentPage = 0
+                                onSetStatusMessage("Anteprima caricata: ${emailsToTrash.size} email individuate.")
+                            } else {
+                                onSetStatusMessage("Caricamento anteprima dalla cache (usa 'Genera Regole IA' per aggiornare).")
                             }
-                            previewEmails = emailsToTrash
-                            selectedEmails = emailsToTrash.map { it.id }.toSet()
-                            currentPage = 0
-                            onSetStatusMessage("Anteprima caricata: ${emailsToTrash.size} email individuate.")
+                            showPreviewDashboard = true
                         } catch (e: Exception) {
                             onSetStatusMessage("Errore anteprima: ${e.message}")
                         }
