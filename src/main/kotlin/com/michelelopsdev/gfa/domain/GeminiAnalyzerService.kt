@@ -1,12 +1,14 @@
 package com.michelelopsdev.gfa.domain
 
-import com.google.ai.client.generativeai.GenerativeModel
-import com.google.ai.client.generativeai.type.content
 import com.michelelopsdev.gfa.data.model.EmailData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.*
 import java.io.File
+import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
 
 class GeminiAnalyzerService {
 
@@ -26,14 +28,12 @@ class GeminiAnalyzerService {
 
         val jsonParser = Json { ignoreUnknownKeys = true }
         
-        // Prendiamo un campione dalle email scaricate (es. il primo file JSON)
         val sampleFile = outputDir.listFiles { _, name -> name.startsWith("emails_part_") && name.endsWith(".json") }
             ?.firstOrNull() ?: throw IllegalStateException("Nessun file JSON trovato nella Fase 1.")
             
         val emailsText = sampleFile.readText()
         val emails = jsonParser.decodeFromString<List<EmailData>>(emailsText)
         
-        // Prendiamo solo le prime 500 email per non saturare i token inutilmente e velocizzare
         val sampleSize = minOf(emails.size, 500)
         val sampleData = emails.take(sampleSize).joinToString("\n") { 
             "Da: ${it.da} | Oggetto: ${it.titolo}" 
@@ -41,7 +41,7 @@ class GeminiAnalyzerService {
 
         val prompt = """
             Sei un sistema di classificazione email.
-            Ecco un campione di 500 email estratte dalla casella di un utente:
+            Ecco un campione di $sampleSize email estratte dalla casella di un utente:
             
             $sampleData
             
@@ -67,20 +67,40 @@ class GeminiAnalyzerService {
             Tenta di coprire il più possibile i domini frequenti presenti nel campione fornito, categorizzandoli logicamente (Bollette, Lavoro, Social, Spam, etc.).
         """.trimIndent()
 
-        println("Contatto Gemini 1.5 Flash per l'analisi di $sampleSize email...")
+        println("Contatto Gemini 1.5 Flash via REST API per l'analisi di $sampleSize email...")
 
-        val generativeModel = GenerativeModel(
-            modelName = "gemini-1.5-flash",
-            apiKey = apiKey
-        )
+        // Chiamata REST pura per bypassare i problemi della libreria Android su Desktop
+        val requestBody = buildJsonObject {
+            put("contents", buildJsonArray {
+                addJsonObject {
+                    put("parts", buildJsonArray {
+                        addJsonObject {
+                            put("text", prompt)
+                        }
+                    })
+                }
+            })
+        }.toString()
 
-        val response = generativeModel.generateContent(
-            content {
-                text(prompt)
-            }
-        )
+        val client = HttpClient.newHttpClient()
+        val request = HttpRequest.newBuilder()
+            .uri(URI.create("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey"))
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+            .build()
 
-        val outputText = response.text ?: throw IllegalStateException("Risposta vuota da Gemini.")
+        val response = client.send(request, HttpResponse.BodyHandlers.ofString())
+
+        if (response.statusCode() != 200) {
+            throw IllegalStateException("Errore API Gemini (${response.statusCode()}): ${response.body()}")
+        }
+
+        // Parsing della risposta JSON di Gemini
+        val responseJson = jsonParser.parseToJsonElement(response.body()).jsonObject
+        val outputText = responseJson["candidates"]?.jsonArray?.get(0)?.jsonObject
+            ?.get("content")?.jsonObject
+            ?.get("parts")?.jsonArray?.get(0)?.jsonObject
+            ?.get("text")?.jsonPrimitive?.content ?: throw IllegalStateException("Risposta non valida da Gemini.")
         
         // Pulisce l'output da eventuali tag markdown ```json ... ``` generati da Gemini
         val cleanJson = outputText.removePrefix("```json").removePrefix("```").removeSuffix("```").trim()

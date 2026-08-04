@@ -32,9 +32,6 @@ dependencies {
     implementation("com.google.oauth-client:google-oauth-client-jetty:1.36.0")
     implementation("com.google.apis:google-api-services-gmail:v1-rev20240520-2.0.0")
 
-    // Google Gemini AI SDK
-    implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
-
     // Apache POI for Excel export
     implementation("org.apache.poi:poi-ooxml:5.2.3")
     implementation("org.apache.logging.log4j:log4j-core:2.19.0")
