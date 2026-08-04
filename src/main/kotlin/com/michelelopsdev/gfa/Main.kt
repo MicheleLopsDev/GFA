@@ -40,6 +40,7 @@ fun App() {
     var totalInbox by remember { mutableStateOf(0) }
     var currentSubject by remember { mutableStateOf("") }
     var currentDate by remember { mutableStateOf("") }
+    var lastSessionDate by remember { mutableStateOf("") }
     var progressPercent by remember { mutableStateOf(0f) }
     var isPaused by remember { mutableStateOf(false) }
 
@@ -50,6 +51,7 @@ fun App() {
             totalInbox = stats.totalInboxMessages
             currentSubject = stats.currentEmailSubject
             currentDate = stats.lastEmailDate
+            lastSessionDate = stats.lastSessionDate
             progressPercent = stats.progressPercent
             
             if (speedHistory.size > 50) speedHistory.removeAt(0)
@@ -276,9 +278,18 @@ fun App() {
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            "Data: $currentDate",
+                            "Data Corrente: $currentDate",
                             color = Color.Gray,
                             fontSize = 12.sp
+                        )
+                    }
+                    if (lastSessionDate.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Ultima data elaborata in prec. sessione: $lastSessionDate",
+                            color = Color(0xFFFF9800),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }

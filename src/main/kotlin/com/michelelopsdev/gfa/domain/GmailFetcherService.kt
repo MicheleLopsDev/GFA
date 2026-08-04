@@ -21,6 +21,7 @@ data class FetcherStats(
     val totalInboxMessages: Int = 0,
     val currentEmailSubject: String = "",
     val lastEmailDate: String = "",
+    val lastSessionDate: String = "",
     val progressPercent: Float = 0f
 )
 
@@ -36,7 +37,7 @@ class GmailFetcherService(
         get() = _isPaused.value
         set(value) { _isPaused.value = value }
 
-    private val _stats = MutableStateFlow(FetcherStats(0, 0, 0, "", "", 0f))
+    private val _stats = MutableStateFlow(FetcherStats(0, 0, 0, "", "", "", 0f))
     val stats = _stats.asStateFlow()
 
     @Volatile
@@ -67,6 +68,8 @@ class GmailFetcherService(
         var currentBatch = mutableListOf<EmailData>()
         var partNumber = 1
         
+        var lastSessionDateStr = ""
+        
         // Cerca i file già esistenti per non sovrascriverli in caso di riavvio dopo "Ferma"
         val existingFiles = outputDir.listFiles { _, name -> name.startsWith("emails_part_") && name.endsWith(".json") }
         if (existingFiles != null && existingFiles.isNotEmpty()) {
@@ -75,8 +78,32 @@ class GmailFetcherService(
             }.maxOrNull()
             if (maxPart != null) {
                 partNumber = maxPart + 1
+                
+                // Recupera l'ultima data dell'ultimo file salvato
+                try {
+                    val lastFile = File(outputDir, "emails_part_$maxPart.json")
+                    if (lastFile.exists()) {
+                        val jsonParser = Json { ignoreUnknownKeys = true }
+                        val emailsInFile = jsonParser.decodeFromString<List<EmailData>>(lastFile.readText())
+                        if (emailsInFile.isNotEmpty()) {
+                            lastSessionDateStr = emailsInFile.last().data
+                        }
+                    }
+                } catch (e: Exception) {
+                    println("Impossibile leggere l'ultima data: ${e.message}")
+                }
             }
         }
+        
+        // Invia stat iniziale (specialmente se c'è una lastSessionDate)
+        _stats.value = FetcherStats(
+            totalProcessed = totalProcessed,
+            speedPerSecond = 0,
+            totalInboxMessages = totalInboxMessages,
+            lastSessionDate = lastSessionDateStr,
+            progressPercent = if (totalInboxMessages > 0) totalProcessed.toFloat() / totalInboxMessages else 0f
+        )
+        
         println("Avvio connessione a Gmail e inizio scansione messaggi...")
 
         val user = "me"
@@ -131,6 +158,7 @@ class GmailFetcherService(
                                 totalInboxMessages = totalInboxMessages,
                                 currentEmailSubject = emailData.titolo,
                                 lastEmailDate = emailData.data,
+                                lastSessionDate = lastSessionDateStr,
                                 progressPercent = percent
                             )
                             lastProcessedCount = totalProcessed
