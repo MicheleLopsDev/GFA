@@ -16,69 +16,88 @@ class GeminiAnalyzerService {
     private val rulesFile = File(System.getProperty("user.home"), ".gfa/rules.json")
     private val apiKeyFile = File(System.getProperty("user.home"), ".gfa/gemini_api_key.txt")
 
-    suspend fun generateRules() = withContext(Dispatchers.IO) {
-        if (!apiKeyFile.exists()) {
-            throw IllegalStateException("API Key mancante! Crea il file ${apiKeyFile.absolutePath} e inserisci la tua chiave di Google AI Studio.")
-        }
-        
+
+    // Nuova logica di aggregazione pulita
+    suspend fun generateCleanupRules() = withContext(Dispatchers.IO) {
+        if (!apiKeyFile.exists()) throw IllegalStateException("API Key mancante! Crea il file ${apiKeyFile.absolutePath}")
         val apiKey = apiKeyFile.readText().trim()
-        if (apiKey.isEmpty()) {
-            throw IllegalStateException("L'API Key nel file ${apiKeyFile.absolutePath} è vuota.")
-        }
+        if (apiKey.isEmpty()) throw IllegalStateException("L'API Key è vuota.")
 
         val jsonParser = Json { ignoreUnknownKeys = true }
-        
-        val sampleFile = outputDir.listFiles { _, name -> name.startsWith("emails_part_") && name.endsWith(".json") }
-            ?.firstOrNull() ?: throw IllegalStateException("Nessun file JSON trovato nella Fase 1.")
-            
-        val emailsText = sampleFile.readText()
-        val emails = jsonParser.decodeFromString<List<EmailData>>(emailsText)
-        
-        val sampleSize = minOf(emails.size, 500)
-        val sampleData = emails.take(sampleSize).joinToString("\n") { 
-            "Da: ${it.da} | Oggetto: ${it.titolo}" 
+        val jsonFiles = outputDir.listFiles { _, name -> name.startsWith("emails_part_") && name.endsWith(".json") }
+            ?.filter { it.length() > 0 } ?: throw IllegalStateException("Nessun dato trovato.")
+
+        println("Fase 2: Aggregazione dati locali in corso...")
+
+        val domainCount = mutableMapOf<String, Int>()
+        val domainSubjects = mutableMapOf<String, MutableSet<String>>()
+
+        var scanned = 0
+        for (file in jsonFiles) {
+            val text = file.readText()
+            if (text.isBlank()) continue
+            val emails = jsonParser.decodeFromString<List<EmailData>>(text)
+            for (email in emails) {
+                scanned++
+                val domain = extractDomain(email.da)
+                if (domain.isNotEmpty()) {
+                    domainCount[domain] = domainCount.getOrDefault(domain, 0) + 1
+                    val subjects = domainSubjects.getOrPut(domain) { mutableSetOf() }
+                    if (subjects.size < 3 && email.titolo.isNotBlank()) {
+                        subjects.add(email.titolo.take(40).replace("\n", " "))
+                    }
+                }
+            }
+        }
+
+        // Prendiamo i top 100 domini più frequenti
+        val topDomains = domainCount.entries
+            .sortedByDescending { it.value }
+            .take(150)
+            .filter { it.value > 2 } // ignoriamo i domini che compaiono 1 o 2 volte
+
+        val sampleData = topDomains.joinToString("\n") { entry ->
+            val dom = entry.key
+            val count = entry.value
+            val subs = domainSubjects[dom]?.joinToString(" | ") ?: ""
+            "Dominio: @$dom (Conteggio: $count email) - Esempi Oggetti: $subs"
         }
 
         val prompt = """
-            Sei un sistema di classificazione email.
-            Ecco un campione di $sampleSize email estratte dalla casella di un utente:
+            Sei un sistema di pulizia e Triage email.
+            Ho analizzato una casella di posta di $scanned email. Ecco i mittenti più frequenti (aggregati per dominio) che ingombrano la casella, con il loro conteggio e alcuni oggetti di esempio:
             
             $sampleData
             
-            Analizza i pattern dei mittenti e degli oggetti. Crea delle regole di classificazione in formato JSON.
+            Il tuo compito è generare regole di classificazione in formato JSON ESCLUSIVAMENTE per eliminare la spazzatura (Newsletter, Spam, Social, Notifiche automatiche inutili).
+            Ignora (non creare regole per) i domini che sembrano importanti (es. banche, comunicazioni personali, lavoro), perché ce ne occuperemo nella Fase 4.
+            
             Il JSON DEVE avere questa struttura esatta, senza markdown o testo aggiuntivo (solo il JSON nudo e crudo):
             {
               "rules": [
                 {
-                  "id": "regola_banca",
-                  "patternMittente": ".*@banca\\.it.*",
-                  "action": "KEEP_AND_LABEL",
-                  "labelName": "Banca"
+                  "id": "regola_social",
+                  "patternMittente": ".*@(facebook|instagram|twitter|linkedin)\\.com.*",
+                  "action": "TRASH"
                 },
                 {
-                  "id": "regola_spam_newsletter",
-                  "patternOggetto": ".*(sconto|offerta|newsletter).*",
+                  "id": "regola_marketing",
+                  "patternMittente": ".*@newsletter\\.ecommerce\\.it.*",
+                  "patternOggetto": ".*(sconto|offerta).*",
                   "action": "TRASH"
                 }
               ]
             }
             
-            Le action consentite sono solo: TRASH, KEEP_AND_LABEL, IGNORE.
-            Tenta di coprire il più possibile i domini frequenti presenti nel campione fornito, categorizzandoli logicamente (Bollette, Lavoro, Social, Spam, etc.).
+            Le action consentite per ora è solo: TRASH.
+            Crea espressioni regolari (regex) intelligenti. Raggruppa domini simili con (dominio1|dominio2) se l'azione è la stessa per risparmiare regole.
         """.trimIndent()
 
-        println("Contatto Gemini 1.5 Flash via REST API per l'analisi di $sampleSize email...")
+        println("Contatto Gemini 1.5 Flash via REST API per la generazione delle regole di pulizia...")
 
-        // Chiamata REST pura per bypassare i problemi della libreria Android su Desktop
         val requestBody = buildJsonObject {
             put("contents", buildJsonArray {
-                addJsonObject {
-                    put("parts", buildJsonArray {
-                        addJsonObject {
-                            put("text", prompt)
-                        }
-                    })
-                }
+                addJsonObject { put("parts", buildJsonArray { addJsonObject { put("text", prompt) } }) }
             })
         }.toString()
 
@@ -90,22 +109,31 @@ class GeminiAnalyzerService {
             .build()
 
         val response = client.send(request, HttpResponse.BodyHandlers.ofString())
+        if (response.statusCode() != 200) throw IllegalStateException("Errore API Gemini: ${response.body()}")
 
-        if (response.statusCode() != 200) {
-            throw IllegalStateException("Errore API Gemini (${response.statusCode()}): ${response.body()}")
-        }
-
-        // Parsing della risposta JSON di Gemini
         val responseJson = jsonParser.parseToJsonElement(response.body()).jsonObject
         val outputText = responseJson["candidates"]?.jsonArray?.get(0)?.jsonObject
-            ?.get("content")?.jsonObject
-            ?.get("parts")?.jsonArray?.get(0)?.jsonObject
+            ?.get("content")?.jsonObject?.get("parts")?.jsonArray?.get(0)?.jsonObject
             ?.get("text")?.jsonPrimitive?.content ?: throw IllegalStateException("Risposta non valida da Gemini.")
         
-        // Pulisce l'output da eventuali tag markdown ```json ... ``` generati da Gemini
         val cleanJson = outputText.removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
-
         rulesFile.writeText(cleanJson)
-        println("File delle regole generato con successo in: ${rulesFile.absolutePath}")
+        println("File regole di pulizia (Fase 2) generato in: ${rulesFile.absolutePath}")
+    }
+    
+    // Per retrocompatibilità temporanea chiamiamo la nuova funzione
+    suspend fun generateRules() {
+        generateCleanupRules()
+    }
+
+    private fun extractDomain(sender: String): String {
+        // Esempio: "Amazon <auto-confirm@amazon.it>" -> "amazon.it"
+        // Esempio: "newsletter@sub.domain.com" -> "sub.domain.com"
+        val emailPart = if (sender.contains("<") && sender.contains(">")) {
+            sender.substringAfter("<").substringBefore(">")
+        } else {
+            sender
+        }
+        return emailPart.substringAfter("@", "").trim().lowercase()
     }
 }
