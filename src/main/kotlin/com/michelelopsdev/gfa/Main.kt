@@ -218,10 +218,15 @@ fun App() {
                                         fetcherService?.isRunning = false
                                         isExtracting = false
                                         
-                                        // Elimina la cartella .gfa (Database e JSON)
+                                        // Elimina solo le cartelle di output e il database, per non perdere le credenziali di Google!
+                                        val outputDir = java.io.File(System.getProperty("user.home"), ".gfa/output")
+                                        if (outputDir.exists()) outputDir.deleteRecursively()
+                                        
                                         val gfaDir = java.io.File(System.getProperty("user.home"), ".gfa")
-                                        if (gfaDir.exists()) {
-                                            gfaDir.deleteRecursively()
+                                        gfaDir.listFiles()?.forEach { file ->
+                                            if (file.name.startsWith("gfa_database")) {
+                                                file.delete()
+                                            }
                                         }
                                         
                                         // Elimina il file Excel esportato se esiste
