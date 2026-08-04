@@ -12,6 +12,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
@@ -439,8 +441,32 @@ fun CleanupScreen(
     onSetStatusMessage: (String) -> Unit,
     coroutineScope: kotlinx.coroutines.CoroutineScope
 ) {
+    var requestLog by remember { mutableStateOf("") }
+    var responseLog by remember { mutableStateOf("") }
+    var userEmail by remember { mutableStateOf("Caricamento...") }
+
+    LaunchedEffect(Unit) {
+        coroutineScope.launch(Dispatchers.IO) {
+            try {
+                val authManager = GmailAuthManager()
+                val profile = authManager.getGmailService().users().getProfile("me").execute()
+                userEmail = profile.emailAddress ?: "Email Sconosciuta"
+            } catch (e: Exception) {
+                userEmail = "Errore recupero email"
+            }
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text("Fase 2: Generazione Regole di Pulizia (Trash)", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Fase 2: Generazione Regole di Pulizia (Trash)", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text("Account in pulizia: $userEmail", color = Color(0xFF00E5FF), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        }
+        
         Spacer(modifier = Modifier.height(16.dp))
         
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -449,7 +475,10 @@ fun CleanupScreen(
                     onSetStatusMessage("Analisi Gemini in corso (Fase 2)...")
                     coroutineScope.launch {
                         try {
-                            com.michelelopsdev.gfa.domain.GeminiAnalyzerService().generateRules()
+                            com.michelelopsdev.gfa.domain.GeminiAnalyzerService().generateRules { req, res ->
+                                requestLog = req
+                                responseLog = res
+                            }
                             onSetStatusMessage("Regole generate con successo! (Fase 2)")
                         } catch (e: Exception) {
                             onSetStatusMessage("Errore Gemini: ${e.message}")
@@ -486,8 +515,48 @@ fun CleanupScreen(
         }
         
         Spacer(modifier = Modifier.height(32.dp))
-        Text("Anteprima Regole Generali", color = Color.LightGray, fontSize = 16.sp)
-        // TODO: Aggiungere box con TextField per modificare rules.json
+        
+        Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            // Request Log
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Dati Inviati a Gemini (Request)", color = Color.LightGray, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
+                        .padding(8.dp)
+                ) {
+                    val scrollState = rememberScrollState()
+                    Text(
+                        text = requestLog.ifEmpty { "Nessuna richiesta inviata ancora..." },
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        modifier = Modifier.verticalScroll(scrollState)
+                    )
+                }
+            }
+
+            // Response Log
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Risposta da Gemini (Response)", color = Color.LightGray, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
+                        .padding(8.dp)
+                ) {
+                    val scrollState = rememberScrollState()
+                    Text(
+                        text = responseLog.ifEmpty { "In attesa di risposta..." },
+                        color = Color(0xFF00E5FF),
+                        fontSize = 12.sp,
+                        modifier = Modifier.verticalScroll(scrollState)
+                    )
+                }
+            }
+        }
     }
 }
 

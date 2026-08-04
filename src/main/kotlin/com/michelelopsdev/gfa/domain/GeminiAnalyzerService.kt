@@ -18,7 +18,7 @@ class GeminiAnalyzerService {
 
 
     // Nuova logica di aggregazione pulita
-    suspend fun generateCleanupRules() = withContext(Dispatchers.IO) {
+    suspend fun generateCleanupRules(onLog: ((String, String) -> Unit)? = null) = withContext(Dispatchers.IO) {
         if (!apiKeyFile.exists()) throw IllegalStateException("API Key mancante! Crea il file ${apiKeyFile.absolutePath}")
         val apiKey = apiKeyFile.readText().trim()
         if (apiKey.isEmpty()) throw IllegalStateException("L'API Key è vuota.")
@@ -124,11 +124,13 @@ class GeminiAnalyzerService {
                 val cleanJson = outputText.removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
                 rulesFile.writeText(cleanJson)
                 println("File regole di pulizia (Fase 2) generato in: ${rulesFile.absolutePath} usando $modelName")
+                onLog?.invoke(prompt, cleanJson)
                 success = true
                 break // Esce dal loop se ha avuto successo
             } else {
                 lastError = "Errore $modelName: ${response.body()}"
                 println(lastError)
+                onLog?.invoke(prompt, lastError)
                 // Se c'è errore, continua il loop col prossimo modello
             }
         }
@@ -139,8 +141,8 @@ class GeminiAnalyzerService {
     }
     
     // Per retrocompatibilità temporanea chiamiamo la nuova funzione
-    suspend fun generateRules() {
-        generateCleanupRules()
+    suspend fun generateRules(onLog: ((String, String) -> Unit)? = null) {
+        generateCleanupRules(onLog)
     }
 
     private fun extractDomain(sender: String): String {
