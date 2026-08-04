@@ -210,6 +210,7 @@ fun PreviewDashboard(
                 Text("Email per pagina:", color = MaterialTheme.colorScheme.onSurface)
                 Button(onClick = { onPageSizeChanged(50) }, colors = ButtonDefaults.buttonColors(containerColor = if (pageSize == 50) Color(0xFF00E5FF) else MaterialTheme.colorScheme.surfaceVariant, contentColor = if (pageSize == 50) Color.Black else MaterialTheme.colorScheme.onBackground)) { Text("50") }
                 Button(onClick = { onPageSizeChanged(100) }, colors = ButtonDefaults.buttonColors(containerColor = if (pageSize == 100) Color(0xFF00E5FF) else MaterialTheme.colorScheme.surfaceVariant, contentColor = if (pageSize == 100) Color.Black else MaterialTheme.colorScheme.onBackground)) { Text("100") }
+                Button(onClick = { onPageSizeChanged(200) }, colors = ButtonDefaults.buttonColors(containerColor = if (pageSize == 200) Color(0xFF00E5FF) else MaterialTheme.colorScheme.surfaceVariant, contentColor = if (pageSize == 200) Color.Black else MaterialTheme.colorScheme.onBackground)) { Text("200") }
             }
             
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
