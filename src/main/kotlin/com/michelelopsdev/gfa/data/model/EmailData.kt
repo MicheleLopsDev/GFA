@@ -8,6 +8,7 @@ data class EmailData(
     val titolo: String,
     val da: String,
     val a: String,
+    val data: String = "",
     val testo: String,
     val haAllegati: Boolean,
     val nomiAllegati: List<String>

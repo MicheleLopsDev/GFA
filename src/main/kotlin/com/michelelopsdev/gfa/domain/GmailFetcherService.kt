@@ -15,7 +15,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import kotlin.math.pow
 
-data class FetcherStats(val totalProcessed: Int, val speedPerSecond: Int)
+data class FetcherStats(
+    val totalProcessed: Int, 
+    val speedPerSecond: Int,
+    val totalInboxMessages: Int = 0,
+    val currentEmailSubject: String = "",
+    val lastEmailDate: String = "",
+    val progressPercent: Float = 0f
+)
 
 class GmailFetcherService(
     private val gmailService: Gmail,
@@ -29,7 +36,7 @@ class GmailFetcherService(
         get() = _isPaused.value
         set(value) { _isPaused.value = value }
 
-    private val _stats = MutableStateFlow(FetcherStats(0, 0))
+    private val _stats = MutableStateFlow(FetcherStats(0, 0, 0, "", "", 0f))
     val stats = _stats.asStateFlow()
 
     @Volatile
@@ -41,7 +48,22 @@ class GmailFetcherService(
 
     suspend fun extractData() {
         var nextPageToken: String? = null
-        var totalProcessed = 0
+        
+        println("Recupero numero totale di email nell'account...")
+        var totalInboxMessages = 0
+        try {
+            val profile = executeWithBackoff { gmailService.users().getProfile("me").execute() }
+            if (profile != null) {
+                totalInboxMessages = profile.messagesTotal ?: 0
+                println("Email totali nella casella: $totalInboxMessages")
+            }
+        } catch (e: Exception) {
+            println("Impossibile recuperare il totale delle email: ${e.message}")
+        }
+
+        var totalProcessed = emailDao.getProcessedCount()
+        println("Email già processate nel DB: $totalProcessed")
+
         var currentBatch = mutableListOf<EmailData>()
         var partNumber = 1
         
@@ -99,7 +121,18 @@ class GmailFetcherService(
                         val now = System.currentTimeMillis()
                         if (now - lastTimeMillis >= 1000) {
                             val speed = totalProcessed - lastProcessedCount
-                            _stats.value = FetcherStats(totalProcessed, speed)
+                            val percent = if (totalInboxMessages > 0) {
+                                (totalProcessed.toFloat() / totalInboxMessages.toFloat())
+                            } else 0f
+                            
+                            _stats.value = FetcherStats(
+                                totalProcessed = totalProcessed,
+                                speedPerSecond = speed,
+                                totalInboxMessages = totalInboxMessages,
+                                currentEmailSubject = emailData.titolo,
+                                lastEmailDate = emailData.data,
+                                progressPercent = percent
+                            )
                             lastProcessedCount = totalProcessed
                             lastTimeMillis = now
                         }
@@ -132,6 +165,7 @@ class GmailFetcherService(
         val subject = headers.find { it.name.equals("Subject", true) }?.value ?: ""
         val from = headers.find { it.name.equals("From", true) }?.value ?: ""
         val to = headers.find { it.name.equals("To", true) }?.value ?: ""
+        val date = headers.find { it.name.equals("Date", true) }?.value ?: ""
         val snippet = message.snippet ?: ""
 
         val attachments = mutableListOf<String>()
@@ -142,6 +176,7 @@ class GmailFetcherService(
             titolo = subject,
             da = from,
             a = to,
+            data = date,
             testo = snippet,
             haAllegati = attachments.isNotEmpty(),
             nomiAllegati = attachments

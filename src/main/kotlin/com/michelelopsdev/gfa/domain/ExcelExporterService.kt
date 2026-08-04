@@ -30,10 +30,11 @@ class ExcelExporterService {
             headerRow.createCell(0).setCellValue("ID")
             headerRow.createCell(1).setCellValue("Mittente")
             headerRow.createCell(2).setCellValue("Destinatario")
-            headerRow.createCell(3).setCellValue("Oggetto")
-            headerRow.createCell(4).setCellValue("Snippet")
-            headerRow.createCell(5).setCellValue("Ha Allegati")
-            headerRow.createCell(6).setCellValue("Nomi Allegati")
+            headerRow.createCell(3).setCellValue("Data")
+            headerRow.createCell(4).setCellValue("Oggetto")
+            headerRow.createCell(5).setCellValue("Snippet")
+            headerRow.createCell(6).setCellValue("Ha Allegati")
+            headerRow.createCell(7).setCellValue("Nomi Allegati")
 
             var rowNum = 1
 
@@ -46,10 +47,11 @@ class ExcelExporterService {
                     row.createCell(0).setCellValue(email.id)
                     row.createCell(1).setCellValue(email.da)
                     row.createCell(2).setCellValue(email.a)
-                    row.createCell(3).setCellValue(email.titolo)
-                    row.createCell(4).setCellValue(email.testo)
-                    row.createCell(5).setCellValue(if (email.haAllegati) "SI" else "NO")
-                    row.createCell(6).setCellValue(email.nomiAllegati.joinToString(", "))
+                    row.createCell(3).setCellValue(email.data)
+                    row.createCell(4).setCellValue(email.titolo)
+                    row.createCell(5).setCellValue(email.testo)
+                    row.createCell(6).setCellValue(if (email.haAllegati) "SI" else "NO")
+                    row.createCell(7).setCellValue(email.nomiAllegati.joinToString(", "))
                 }
             }
 

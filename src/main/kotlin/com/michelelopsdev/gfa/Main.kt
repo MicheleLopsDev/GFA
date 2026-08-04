@@ -3,12 +3,15 @@ package com.michelelopsdev.gfa
 import androidx.compose.desktop.ui.tooling.preview.Preview
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
@@ -21,6 +24,7 @@ import com.michelelopsdev.gfa.ui.RealtimeChart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 @Composable
 @Preview
@@ -33,12 +37,21 @@ fun App() {
     val speedHistory = remember { mutableStateListOf<Int>() }
     var currentSpeed by remember { mutableStateOf(0) }
     var totalProcessed by remember { mutableStateOf(0) }
+    var totalInbox by remember { mutableStateOf(0) }
+    var currentSubject by remember { mutableStateOf("") }
+    var currentDate by remember { mutableStateOf("") }
+    var progressPercent by remember { mutableStateOf(0f) }
     var isPaused by remember { mutableStateOf(false) }
 
     LaunchedEffect(fetcherService) {
         fetcherService?.stats?.collect { stats ->
             totalProcessed = stats.totalProcessed
             currentSpeed = stats.speedPerSecond
+            totalInbox = stats.totalInboxMessages
+            currentSubject = stats.currentEmailSubject
+            currentDate = stats.lastEmailDate
+            progressPercent = stats.progressPercent
+            
             if (speedHistory.size > 50) speedHistory.removeAt(0)
             speedHistory.add(currentSpeed)
         }
@@ -192,36 +205,81 @@ fun App() {
                 }
             }
 
-            // MIDDLE - Indicatori KPI
+            // MIDDLE - Indicatori KPI e Progress Bar
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 24.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
+                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E)),
-                    modifier = Modifier.width(200.dp).padding(8.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                // KPIs
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E)),
+                        modifier = Modifier.width(220.dp)
                     ) {
-                        Text("Email Elaborate", color = Color.LightGray, fontSize = 14.sp)
-                        Text("$totalProcessed", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold)
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text("Email Elaborate / Totali", color = Color.LightGray, fontSize = 14.sp)
+                            val totalStr = if (totalInbox > 0) " / $totalInbox" else ""
+                            Text("$totalProcessed$totalStr", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E)),
+                        modifier = Modifier.width(180.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text("Velocità (msg/s)", color = Color.LightGray, fontSize = 14.sp)
+                            Text("$currentSpeed", color = Color(0xFF00E5FF), fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
-                
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E)),
-                    modifier = Modifier.width(200.dp).padding(8.dp)
+
+                // Progress Bar e Info Email Corrente
+                Column(
+                    modifier = Modifier.weight(1f).padding(start = 24.dp),
+                    horizontalAlignment = Alignment.End
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text("Velocità (msg/s)", color = Color.LightGray, fontSize = 14.sp)
-                        Text("$currentSpeed", color = Color(0xFF00E5FF), fontSize = 32.sp, fontWeight = FontWeight.Bold)
+                    val displayPercent = (progressPercent * 100).roundToInt()
+                    // La barra diminuisce: 1.0f - progressPercent
+                    LinearProgressIndicator(
+                        progress = 1.0f - progressPercent,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(16.dp)
+                            .clip(RoundedCornerShape(8.dp)),
+                        color = Color(0xFFE91E63),
+                        trackColor = Color.DarkGray
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    Text(
+                        "Da scaricare: ${100 - displayPercent}%", 
+                        color = Color.LightGray, 
+                        fontWeight = FontWeight.Bold
+                    )
+                    
+                    if (currentSubject.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Scansionando: $currentSubject",
+                            color = Color(0xFF00E5FF),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            "Data: $currentDate",
+                            color = Color.Gray,
+                            fontSize = 12.sp
+                        )
                     }
                 }
             }
@@ -230,7 +288,7 @@ fun App() {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f) // Occupa tutto lo spazio rimanente
+                    .weight(1f)
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 RealtimeChart(
