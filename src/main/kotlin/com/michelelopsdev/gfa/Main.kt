@@ -64,6 +64,21 @@ fun App() {
     var lastSessionDate by remember { mutableStateOf("") }
     var progressPercent by remember { mutableStateOf(0f) }
     var isPaused by remember { mutableStateOf(false) }
+    
+    // Globale: Account Utente
+    var userEmail by remember { mutableStateOf("Caricamento...") }
+
+    LaunchedEffect(Unit) {
+        coroutineScope.launch(Dispatchers.IO) {
+            try {
+                val authManager = GmailAuthManager()
+                val profile = authManager.getGmailService().users().getProfile("me").execute()
+                userEmail = profile.emailAddress ?: "Sconosciuta"
+            } catch (e: Exception) {
+                userEmail = "Non connesso"
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         coroutineScope.launch(Dispatchers.IO) {
@@ -164,6 +179,7 @@ fun App() {
                             color = MaterialTheme.colorScheme.onBackground
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Account: $userEmail", color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold)
                             Button(onClick = { isDarkTheme = !isDarkTheme }) {
                                 Text(if (isDarkTheme) "☀️ Chiaro" else "🌙 Scuro")
                             }
@@ -468,60 +484,76 @@ fun CleanupScreen(
 ) {
     var requestLog by remember { mutableStateOf("") }
     var responseLog by remember { mutableStateOf("") }
-    var userEmail by remember { mutableStateOf("Caricamento...") }
     var successfulModel by remember { mutableStateOf<String?>(null) }
     var failedModels by remember { mutableStateOf<List<String>>(emptyList()) }
-
-    LaunchedEffect(Unit) {
-        coroutineScope.launch(Dispatchers.IO) {
-            try {
-                val authManager = GmailAuthManager()
-                val profile = authManager.getGmailService().users().getProfile("me").execute()
-                userEmail = profile.emailAddress ?: "Email Sconosciuta"
-            } catch (e: Exception) {
-                userEmail = "Errore recupero email"
-            }
-        }
-    }
+    
+    val allAvailableModels = listOf("gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.6-flash", "gemini-2.0-flash")
+    var selectedModels by remember { mutableStateOf(allAvailableModels) }
+    var isGenerating by remember { mutableStateOf(false) }
+    var currentProgressMsg by remember { mutableStateOf("") }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("Fase 2: Generazione Regole di Pulizia", color = MaterialTheme.colorScheme.onBackground, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            
-            // Render the account name MUCH bigger
-            Column(horizontalAlignment = Alignment.End) {
-                Text("Account in Pulizia:", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
-                Text(userEmail, color = Color(0xFF00E5FF), fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+        Text("Fase 2: Generazione Regole di Pulizia", color = MaterialTheme.colorScheme.onBackground, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        // Selezione Modelli
+        Text("Modelli di Fallback (ordine di esecuzione):", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            allAvailableModels.forEach { model ->
+                val isSelected = selectedModels.contains(model)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = isSelected,
+                        onCheckedChange = { checked ->
+                            if (checked) {
+                                selectedModels = selectedModels + model
+                            } else {
+                                if (selectedModels.size > 1) {
+                                    selectedModels = selectedModels - model
+                                }
+                            }
+                        }
+                    )
+                    Text(model, color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp)
+                }
             }
         }
         
         Spacer(modifier = Modifier.height(16.dp))
         
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Button(
                 onClick = {
+                    if (isGenerating) return@Button
+                    isGenerating = true
+                    currentProgressMsg = "Inizializzazione..."
                     onSetStatusMessage("Analisi Gemini in corso (Fase 2)...")
                     coroutineScope.launch {
                         try {
-                            com.michelelopsdev.gfa.domain.GeminiAnalyzerService().generateRules { req, res, sModel, fModels ->
-                                requestLog = req
-                                responseLog = res
-                                successfulModel = sModel
-                                failedModels = fModels
-                            }
+                            com.michelelopsdev.gfa.domain.GeminiAnalyzerService().generateRules(
+                                modelsToTry = selectedModels,
+                                onProgress = { currentProgressMsg = it },
+                                onLog = { req, res, sModel, fModels ->
+                                    requestLog = req
+                                    responseLog = res
+                                    successfulModel = sModel
+                                    failedModels = fModels
+                                }
+                            )
                             onSetStatusMessage("Regole generate con successo! (Fase 2)")
                         } catch (e: Exception) {
                             onSetStatusMessage("Errore Gemini: ${e.message}")
+                            currentProgressMsg = "Errore!"
+                        } finally {
+                            isGenerating = false
                         }
                     }
                 },
+                enabled = !isGenerating,
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF9C27B0))
             ) {
-                Text("Genera Regole IA (Trash)", color = Color.White)
+                Text(if (isGenerating) "Generazione in corso..." else "Genera Regole IA (Trash)", color = Color.White)
             }
             
             Button(
@@ -545,6 +577,11 @@ fun CleanupScreen(
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE91E63))
             ) {
                 Text("Avvia Pulizia (Trash)", color = Color.White)
+            }
+
+            if (isGenerating) {
+                CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color(0xFF00E5FF))
+                Text(currentProgressMsg, color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold)
             }
         }
         

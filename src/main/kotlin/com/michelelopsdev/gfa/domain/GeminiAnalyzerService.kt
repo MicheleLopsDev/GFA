@@ -18,7 +18,11 @@ class GeminiAnalyzerService {
 
 
     // Nuova logica di aggregazione pulita
-    suspend fun generateCleanupRules(onLog: ((String, String, String?, List<String>) -> Unit)? = null) = withContext(Dispatchers.IO) {
+    suspend fun generateCleanupRules(
+        modelsToTry: List<String> = listOf("gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.6-flash", "gemini-2.0-flash"),
+        onProgress: ((String) -> Unit)? = null,
+        onLog: ((String, String, String?, List<String>) -> Unit)? = null
+    ) = withContext(Dispatchers.IO) {
         if (!apiKeyFile.exists()) throw IllegalStateException("API Key mancante! Crea il file ${apiKeyFile.absolutePath}")
         val apiKey = apiKeyFile.readText().trim()
         if (apiKey.isEmpty()) throw IllegalStateException("L'API Key è vuota.")
@@ -93,14 +97,15 @@ class GeminiAnalyzerService {
             Crea espressioni regolari (regex) intelligenti. Raggruppa domini simili con (dominio1|dominio2) se l'azione è la stessa per risparmiare regole.
         """.trimIndent()
 
-        val modelsToTry = listOf("gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.6-flash", "gemini-2.0-flash")
         var lastError = ""
         var success = false
         var successfulModel: String? = null
         val failedModels = mutableListOf<String>()
 
         for (modelName in modelsToTry) {
-            println("Tentativo con il modello: $modelName...")
+            val progressMsg = "⏳ Tentativo con il modello: $modelName..."
+            println(progressMsg)
+            onProgress?.invoke(progressMsg)
             
             val requestBody = buildJsonObject {
                 put("contents", buildJsonArray {
@@ -145,8 +150,12 @@ class GeminiAnalyzerService {
     }
     
     // Per retrocompatibilità temporanea chiamiamo la nuova funzione
-    suspend fun generateRules(onLog: ((String, String, String?, List<String>) -> Unit)? = null) {
-        generateCleanupRules(onLog)
+    suspend fun generateRules(
+        modelsToTry: List<String> = listOf("gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.6-flash", "gemini-2.0-flash"),
+        onProgress: ((String) -> Unit)? = null,
+        onLog: ((String, String, String?, List<String>) -> Unit)? = null
+    ) {
+        generateCleanupRules(modelsToTry, onProgress, onLog)
     }
 
     private fun extractDomain(sender: String): String {
