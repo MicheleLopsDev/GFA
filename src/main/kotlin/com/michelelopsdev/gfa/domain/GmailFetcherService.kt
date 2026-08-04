@@ -45,6 +45,16 @@ class GmailFetcherService(
         var currentBatch = mutableListOf<EmailData>()
         var partNumber = 1
         
+        // Cerca i file già esistenti per non sovrascriverli in caso di riavvio dopo "Ferma"
+        val existingFiles = outputDir.listFiles { _, name -> name.startsWith("emails_part_") && name.endsWith(".json") }
+        if (existingFiles != null && existingFiles.isNotEmpty()) {
+            val maxPart = existingFiles.mapNotNull { 
+                it.name.substringAfter("emails_part_").substringBefore(".json").toIntOrNull() 
+            }.maxOrNull()
+            if (maxPart != null) {
+                partNumber = maxPart + 1
+            }
+        }
         println("Avvio connessione a Gmail e inizio scansione messaggi...")
 
         val user = "me"

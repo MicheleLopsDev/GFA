@@ -1,13 +1,13 @@
 package com.michelelopsdev.gfa
 
 import androidx.compose.desktop.ui.tooling.preview.Preview
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -45,151 +45,208 @@ fun App() {
     }
 
     MaterialTheme {
-        Row(modifier = Modifier.fillMaxSize()) {
-            // Left Panel (Controls)
-            Column(
-                modifier = Modifier.weight(1f).padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+        Column(modifier = Modifier.fillMaxSize().background(Color(0xFF121212))) {
+            
+            // HEADER - Controlli orizzontali in alto
+            Surface(
+                color = Color(0xFF1E1E1E),
+                shadowElevation = 8.dp,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Text(statusMessage, modifier = Modifier.padding(bottom = 16.dp))
-                
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = {
-                        if (isExtracting) return@Button
-                        isExtracting = true
-                        isPaused = false
-                        statusMessage = "Estrazione in corso..."
-                        
-                        coroutineScope.launch {
-                            try {
-                                withContext(Dispatchers.IO) {
-                                    val database = DatabaseFactory.createDatabase()
-                                    val authManager = GmailAuthManager()
-                                    val gmailService = authManager.getGmailService()
-                                    
-                                    val fetcher = GmailFetcherService(gmailService, database.emailDao())
-                                    fetcherService = fetcher
-                                    fetcher.extractData()
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        "Mission Control - GFA",
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        statusMessage,
+                        color = Color(0xFF00E5FF),
+                        fontSize = 14.sp
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Gruppo Estrazione (Fase 1)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = {
+                                if (isExtracting) return@Button
+                                isExtracting = true
+                                isPaused = false
+                                statusMessage = "Estrazione in corso..."
+                                
+                                coroutineScope.launch {
+                                    try {
+                                        withContext(Dispatchers.IO) {
+                                            val database = DatabaseFactory.createDatabase()
+                                            val authManager = GmailAuthManager()
+                                            val gmailService = authManager.getGmailService()
+                                            
+                                            val fetcher = GmailFetcherService(gmailService, database.emailDao())
+                                            fetcherService = fetcher
+                                            fetcher.extractData()
+                                        }
+                                        statusMessage = "Estrazione completata!"
+                                    } catch (e: Exception) {
+                                        statusMessage = "Errore: ${e.localizedMessage}"
+                                        e.printStackTrace()
+                                    } finally {
+                                        isExtracting = false
+                                    }
                                 }
-                                statusMessage = "Estrazione completata!"
-                            } catch (e: Exception) {
-                                statusMessage = "Errore: ${e.localizedMessage}"
-                                e.printStackTrace()
-                            } finally {
-                                isExtracting = false
+                            }, enabled = !isExtracting) {
+                                Text("Avvia (Fase 1)")
+                            }
+
+                            if (isExtracting) {
+                                Button(
+                                    onClick = {
+                                        isPaused = !isPaused
+                                        fetcherService?.isPaused = isPaused
+                                        statusMessage = if (isPaused) "In Pausa..." else "Estrazione in corso..."
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF9800))
+                                ) {
+                                    Text(if (isPaused) "Riprendi" else "Pausa", color = Color.White)
+                                }
+
+                                Button(
+                                    onClick = {
+                                        fetcherService?.isRunning = false
+                                        isExtracting = false
+                                        statusMessage = "Interrotto."
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF44336))
+                                ) {
+                                    Text("Ferma", color = Color.White)
+                                }
                             }
                         }
-                    }, enabled = !isExtracting) {
-                        Text("Avvia (Fase 1)")
-                    }
 
-                    if (isExtracting) {
-                        Button(onClick = {
-                            isPaused = !isPaused
-                            fetcherService?.isPaused = isPaused
-                            statusMessage = if (isPaused) "In Pausa..." else "Estrazione in corso..."
-                        }) {
-                            Text(if (isPaused) "Riprendi" else "Pausa")
+                        // Export Excel
+                        Button(
+                            onClick = {
+                                statusMessage = "Esportazione in Excel in corso..."
+                                coroutineScope.launch {
+                                    try {
+                                        ExcelExporterService().exportToExcel()
+                                        statusMessage = "Esportazione Excel completata sul Desktop!"
+                                    } catch (e: Exception) {
+                                        statusMessage = "Errore Export: ${e.message}"
+                                    }
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))
+                        ) {
+                            Text("Esporta in Excel", color = Color.White)
                         }
 
-                        Button(onClick = {
-                            fetcherService?.isRunning = false
-                            isExtracting = false
-                            statusMessage = "Interrotto."
-                        }) {
-                            Text("Ferma")
+                        // Gemini IA (Fase 2)
+                        Button(
+                            onClick = {
+                                statusMessage = "Analisi Gemini in corso..."
+                                coroutineScope.launch {
+                                    try {
+                                        com.michelelopsdev.gfa.domain.GeminiAnalyzerService().generateRules()
+                                        statusMessage = "Regole generate con successo! (Fase 2)"
+                                    } catch (e: Exception) {
+                                        statusMessage = "Errore Gemini: ${e.message}"
+                                    }
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF9C27B0))
+                        ) {
+                            Text("Genera Regole IA", color = Color.White)
+                        }
+
+                        // Motore Triage (Fase 3)
+                        Button(
+                            onClick = {
+                                statusMessage = "Triage in corso..."
+                                coroutineScope.launch {
+                                    try {
+                                        withContext(Dispatchers.IO) {
+                                            val database = DatabaseFactory.createDatabase()
+                                            val authManager = GmailAuthManager()
+                                            val gmailService = authManager.getGmailService()
+                                            val triageService = com.michelelopsdev.gfa.domain.GmailTriageService(gmailService, database.emailDao())
+                                            triageService.startTriage()
+                                        }
+                                        statusMessage = "Triage completato con successo!"
+                                    } catch (e: Exception) {
+                                        statusMessage = "Errore Triage: ${e.message}"
+                                    }
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE91E63))
+                        ) {
+                            Text("Avvia Triage", color = Color.White)
                         }
                     }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Button(onClick = {
-                    statusMessage = "Esportazione in Excel in corso..."
-                    coroutineScope.launch {
-                        try {
-                            ExcelExporterService().exportToExcel()
-                            statusMessage = "Esportazione Excel completata sul Desktop!"
-                        } catch (e: Exception) {
-                            statusMessage = "Errore Export: ${e.message}"
-                        }
-                    }
-                }) {
-                    Text("Esporta in Excel")
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Button(onClick = {
-                    statusMessage = "Analisi Gemini in corso..."
-                    coroutineScope.launch {
-                        try {
-                            com.michelelopsdev.gfa.domain.GeminiAnalyzerService().generateRules()
-                            statusMessage = "Regole generate con successo! (Fase 2)"
-                        } catch (e: Exception) {
-                            statusMessage = "Errore Gemini: ${e.message}"
-                        }
-                    }
-                }) {
-                    Text("Genera Regole IA (Fase 2)")
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Button(onClick = {
-                    statusMessage = "Triage in corso..."
-                    coroutineScope.launch {
-                        try {
-                            withContext(Dispatchers.IO) {
-                                val database = DatabaseFactory.createDatabase()
-                                val authManager = GmailAuthManager()
-                                val gmailService = authManager.getGmailService()
-                                val triageService = com.michelelopsdev.gfa.domain.GmailTriageService(gmailService, database.emailDao())
-                                triageService.startTriage()
-                            }
-                            statusMessage = "Triage completato con successo!"
-                        } catch (e: Exception) {
-                            statusMessage = "Errore Triage: ${e.message}"
-                        }
-                    }
-                }) {
-                    Text("Motore di Triage (Fase 3)")
                 }
             }
 
-            // Right Panel (Realtime Dashboard)
-            Column(
-                modifier = Modifier.weight(1f).padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+            // MIDDLE - Indicatori KPI
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 24.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                Text("Dashboard Estrazione", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Email Elaborate", fontSize = 14.sp)
-                        Text("$totalProcessed", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                    }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Velocità (msg/s)", fontSize = 14.sp)
-                        Text("$currentSpeed", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E)),
+                    modifier = Modifier.width(200.dp).padding(8.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("Email Elaborate", color = Color.LightGray, fontSize = 14.sp)
+                        Text("$totalProcessed", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold)
                     }
                 }
                 
-                Spacer(modifier = Modifier.height(24.dp))
-                
-                Text("Grafico Velocità di Acquisizione", fontSize = 14.sp)
-                Spacer(modifier = Modifier.height(8.dp))
-                RealtimeChart(dataPoints = speedHistory, modifier = Modifier.fillMaxWidth().height(200.dp))
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E)),
+                    modifier = Modifier.width(200.dp).padding(8.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("Velocità (msg/s)", color = Color.LightGray, fontSize = 14.sp)
+                        Text("$currentSpeed", color = Color(0xFF00E5FF), fontSize = 32.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            // BOTTOM - Grafico espanso
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f) // Occupa tutto lo spazio rimanente
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                RealtimeChart(
+                    dataPoints = speedHistory,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
         }
     }
 }
 
 fun main() = application {
-    Window(onCloseRequest = ::exitApplication, title = "Gmail Filter Advanced (GFA)") {
+    Window(
+        onCloseRequest = ::exitApplication,
+        title = "Gmail Filter Advanced (GFA)"
+    ) {
         App()
     }
 }
-
