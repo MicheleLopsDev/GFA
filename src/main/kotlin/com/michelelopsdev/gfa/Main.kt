@@ -208,6 +208,47 @@ fun App() {
                             Text("Esporta in Excel", color = Color.White)
                         }
 
+                        // Pulsante Reset/Pulizia Dati
+                        Button(
+                            onClick = {
+                                statusMessage = "Pulizia dati in corso..."
+                                coroutineScope.launch(Dispatchers.IO) {
+                                    try {
+                                        // Ferma eventuali download in corso
+                                        fetcherService?.isRunning = false
+                                        isExtracting = false
+                                        
+                                        // Elimina la cartella .gfa (Database e JSON)
+                                        val gfaDir = java.io.File(System.getProperty("user.home"), ".gfa")
+                                        if (gfaDir.exists()) {
+                                            gfaDir.deleteRecursively()
+                                        }
+                                        
+                                        // Elimina il file Excel esportato se esiste
+                                        val exportFile = java.io.File(System.getProperty("user.dir"), "GFA_Export_Email.xlsx")
+                                        if (exportFile.exists()) {
+                                            exportFile.delete()
+                                        }
+                                        
+                                        // Resetta la UI
+                                        totalProcessed = 0
+                                        currentSpeed = 0
+                                        currentSubject = ""
+                                        currentDate = ""
+                                        lastSessionDate = ""
+                                        progressPercent = 0f
+                                        
+                                        statusMessage = "Dati eliminati con successo! Pronto a ripartire da zero."
+                                    } catch (e: Exception) {
+                                        statusMessage = "Errore durante la pulizia: ${e.message}"
+                                    }
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF5722))
+                        ) {
+                            Text("Pulisci Dati", color = Color.White)
+                        }
+
                         // Gemini IA (Fase 2)
                         Button(
                             onClick = {
