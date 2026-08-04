@@ -44,6 +44,48 @@ fun App() {
     var progressPercent by remember { mutableStateOf(0f) }
     var isPaused by remember { mutableStateOf(false) }
 
+    LaunchedEffect(Unit) {
+        coroutineScope.launch(Dispatchers.IO) {
+            try {
+                val database = DatabaseFactory.createDatabase()
+                val totalProcessedInit = database.emailDao().getProcessedCount()
+                totalProcessed = totalProcessedInit
+                
+                // Leggi ultima data
+                val outputDir = java.io.File(System.getProperty("user.home"), ".gfa/output")
+                val existingFiles = outputDir.listFiles { _, name -> name.startsWith("emails_part_") && name.endsWith(".json") }
+                if (existingFiles != null && existingFiles.isNotEmpty()) {
+                    val maxPart = existingFiles.mapNotNull { 
+                        it.name.substringAfter("emails_part_").substringBefore(".json").toIntOrNull() 
+                    }.maxOrNull()
+                    if (maxPart != null) {
+                        val lastFile = java.io.File(outputDir, "emails_part_$maxPart.json")
+                        if (lastFile.exists()) {
+                            val jsonParser = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+                            val emailsInFile = jsonParser.decodeFromString<List<com.michelelopsdev.gfa.data.model.EmailData>>(lastFile.readText())
+                            if (emailsInFile.isNotEmpty()) {
+                                lastSessionDate = emailsInFile.last().data
+                            }
+                        }
+                    }
+                }
+                
+                // Auth & get total
+                val authManager = GmailAuthManager()
+                val gmailService = authManager.getGmailService()
+                val profile = gmailService.users().getProfile("me").execute()
+                if (profile != null) {
+                    totalInbox = profile.messagesTotal ?: 0
+                    if (totalInbox > 0) {
+                        progressPercent = totalProcessedInit.toFloat() / totalInbox
+                    }
+                }
+            } catch (e: Exception) {
+                // error loading initial stats ignorato, attenderà l'avvio manuale
+            }
+        }
+    }
+
     LaunchedEffect(fetcherService) {
         fetcherService?.stats?.collect { stats ->
             totalProcessed = stats.totalProcessed

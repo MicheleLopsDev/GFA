@@ -193,7 +193,12 @@ class GmailFetcherService(
         val subject = headers.find { it.name.equals("Subject", true) }?.value ?: ""
         val from = headers.find { it.name.equals("From", true) }?.value ?: ""
         val to = headers.find { it.name.equals("To", true) }?.value ?: ""
-        val date = headers.find { it.name.equals("Date", true) }?.value ?: ""
+        var date = headers.find { it.name.equals("Date", true) }?.value ?: ""
+        
+        if (date.isEmpty() && message.internalDate != null) {
+            val format = java.text.SimpleDateFormat("EEE, d MMM yyyy HH:mm:ss Z", java.util.Locale.ENGLISH)
+            date = format.format(java.util.Date(message.internalDate))
+        }
         val snippet = message.snippet ?: ""
 
         val attachments = mutableListOf<String>()
