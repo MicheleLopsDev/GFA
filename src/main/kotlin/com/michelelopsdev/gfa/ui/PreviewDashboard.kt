@@ -214,7 +214,31 @@ fun PreviewDashboard(
                 Button(onClick = { onPageChanged(0) }, enabled = safeCurrentPage > 0) { Text("|<<") }
                 Button(onClick = { onPageChanged(safeCurrentPage - 10) }, enabled = safeCurrentPage > 0) { Text("<< -10") }
                 Button(onClick = { onPageChanged(safeCurrentPage - 1) }, enabled = safeCurrentPage > 0) { Text("< Prec") }
-                Text("Pag ${safeCurrentPage + 1} di ${maxOf(1, totalPages)}", color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
+                
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Pag ", color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
+                    var pageInput by remember(safeCurrentPage) { mutableStateOf((safeCurrentPage + 1).toString()) }
+                    OutlinedTextField(
+                        value = pageInput,
+                        onValueChange = { pageInput = it },
+                        modifier = Modifier.width(60.dp).height(50.dp),
+                        singleLine = true,
+                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp)
+                    )
+                    Text(" di ${maxOf(1, totalPages)}", color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Button(
+                        onClick = { 
+                            val p = pageInput.toIntOrNull()
+                            if (p != null) {
+                                onPageChanged(p - 1)
+                            }
+                        },
+                        modifier = Modifier.height(50.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                    ) { Text("Vai") }
+                }
+
                 Button(onClick = { onPageChanged(safeCurrentPage + 1) }, enabled = safeCurrentPage < totalPages - 1) { Text("Succ >") }
                 Button(onClick = { onPageChanged(safeCurrentPage + 10) }, enabled = safeCurrentPage < totalPages - 1) { Text("+10 >>") }
                 Button(onClick = { onPageChanged(totalPages - 1) }, enabled = safeCurrentPage < totalPages - 1) { Text(">>|") }
