@@ -93,32 +93,49 @@ class GeminiAnalyzerService {
             Crea espressioni regolari (regex) intelligenti. Raggruppa domini simili con (dominio1|dominio2) se l'azione è la stessa per risparmiare regole.
         """.trimIndent()
 
-        println("Contatto Gemini 3.5 Flash via REST API per la generazione delle regole di pulizia...")
+        val modelsToTry = listOf("gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.6-flash", "gemini-2.0-flash")
+        var lastError = ""
+        var success = false
 
-        val requestBody = buildJsonObject {
-            put("contents", buildJsonArray {
-                addJsonObject { put("parts", buildJsonArray { addJsonObject { put("text", prompt) } }) }
-            })
-        }.toString()
+        for (modelName in modelsToTry) {
+            println("Tentativo con il modello: $modelName...")
+            
+            val requestBody = buildJsonObject {
+                put("contents", buildJsonArray {
+                    addJsonObject { put("parts", buildJsonArray { addJsonObject { put("text", prompt) } }) }
+                })
+            }.toString()
 
-        val client = HttpClient.newHttpClient()
-        val request = HttpRequest.newBuilder()
-            .uri(URI.create("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=$apiKey"))
-            .header("Content-Type", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-            .build()
+            val client = HttpClient.newHttpClient()
+            val request = HttpRequest.newBuilder()
+                .uri(URI.create("https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+                .build()
 
-        val response = client.send(request, HttpResponse.BodyHandlers.ofString())
-        if (response.statusCode() != 200) throw IllegalStateException("Errore API Gemini: ${response.body()}")
+            val response = client.send(request, HttpResponse.BodyHandlers.ofString())
+            
+            if (response.statusCode() == 200) {
+                val responseJson = jsonParser.parseToJsonElement(response.body()).jsonObject
+                val outputText = responseJson["candidates"]?.jsonArray?.get(0)?.jsonObject
+                    ?.get("content")?.jsonObject?.get("parts")?.jsonArray?.get(0)?.jsonObject
+                    ?.get("text")?.jsonPrimitive?.content ?: throw IllegalStateException("Risposta non valida da Gemini.")
+                
+                val cleanJson = outputText.removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
+                rulesFile.writeText(cleanJson)
+                println("File regole di pulizia (Fase 2) generato in: ${rulesFile.absolutePath} usando $modelName")
+                success = true
+                break // Esce dal loop se ha avuto successo
+            } else {
+                lastError = "Errore $modelName: ${response.body()}"
+                println(lastError)
+                // Se c'è errore, continua il loop col prossimo modello
+            }
+        }
 
-        val responseJson = jsonParser.parseToJsonElement(response.body()).jsonObject
-        val outputText = responseJson["candidates"]?.jsonArray?.get(0)?.jsonObject
-            ?.get("content")?.jsonObject?.get("parts")?.jsonArray?.get(0)?.jsonObject
-            ?.get("text")?.jsonPrimitive?.content ?: throw IllegalStateException("Risposta non valida da Gemini.")
-        
-        val cleanJson = outputText.removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
-        rulesFile.writeText(cleanJson)
-        println("File regole di pulizia (Fase 2) generato in: ${rulesFile.absolutePath}")
+        if (!success) {
+            throw IllegalStateException("Tutti i modelli sono sovraccarichi. Ultimo errore: $lastError")
+        }
     }
     
     // Per retrocompatibilità temporanea chiamiamo la nuova funzione
