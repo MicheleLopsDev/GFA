@@ -69,6 +69,49 @@ class GmailTriageService(
         println("Triage completato. Email esaminate: $totalTriaged")
     }
 
+    suspend fun simulateTriage(): List<EmailData> = withContext(Dispatchers.IO) {
+        if (!rulesFile.exists()) {
+            throw IllegalStateException("File rules.json non trovato. L'LLM deve prima generarlo in ${rulesFile.absolutePath}")
+        }
+
+        val jsonParser = Json { ignoreUnknownKeys = true }
+        val rulesText = rulesFile.readText()
+        val ruleConfig = jsonParser.decodeFromString<RuleConfig>(rulesText)
+        val evaluator = RuleEvaluator(ruleConfig.rules)
+
+        val jsonFiles = outputDir.listFiles { _, name -> name.startsWith("emails_part_") && name.endsWith(".json") }
+            ?: return@withContext emptyList()
+
+        val trashEmails = mutableListOf<EmailData>()
+
+        for (file in jsonFiles) {
+            val emailsText = file.readText()
+            val emails = jsonParser.decodeFromString<List<EmailData>>(emailsText)
+
+            for (email in emails) {
+                if (emailDao.isEmailTriaged(email.id)) continue
+
+                val matchingRule = evaluator.evaluate(email)
+                if (matchingRule?.action == TriageAction.TRASH) {
+                    trashEmails.add(email)
+                }
+            }
+        }
+        
+        return@withContext trashEmails
+    }
+
+    suspend fun executeTrash(emailsToTrash: List<String>, onProgress: ((Int, Int) -> Unit)? = null) = withContext(Dispatchers.IO) {
+        val total = emailsToTrash.size
+        var current = 0
+        for (emailId in emailsToTrash) {
+            trashEmail(emailId)
+            emailDao.insertTriagedEmail(TriagedEmailEntity(emailId, System.currentTimeMillis(), TriageAction.TRASH.name))
+            current++
+            onProgress?.invoke(current, total)
+        }
+    }
+
     private suspend fun trashEmail(emailId: String) {
         executeWithBackoff {
             gmailService.users().messages().trash(user, emailId).execute()

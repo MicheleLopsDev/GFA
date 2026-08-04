@@ -492,6 +492,67 @@ fun CleanupScreen(
     var isGenerating by remember { mutableStateOf(false) }
     var currentProgressMsg by remember { mutableStateOf("") }
 
+    // Preview Mode States
+    var previewEmails by remember { mutableStateOf<List<com.michelelopsdev.gfa.data.model.EmailData>?>(null) }
+    var selectedEmails by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var sortColumn by remember { mutableStateOf("Data") }
+    var sortAscending by remember { mutableStateOf(false) }
+    var currentPage by remember { mutableStateOf(0) }
+    var pageSize by remember { mutableStateOf(50) }
+    var isExecutingTrash by remember { mutableStateOf(false) }
+    var trashProgressMsg by remember { mutableStateOf("") }
+
+    if (previewEmails != null) {
+        com.michelelopsdev.gfa.ui.PreviewDashboard(
+            emails = previewEmails!!,
+            selectedEmails = selectedEmails,
+            onSelectionChanged = { selectedEmails = it },
+            sortColumn = sortColumn,
+            onSortChanged = { col ->
+                if (sortColumn == col) sortAscending = !sortAscending
+                else { sortColumn = col; sortAscending = true }
+            },
+            sortAscending = sortAscending,
+            currentPage = currentPage,
+            onPageChanged = { currentPage = it },
+            pageSize = pageSize,
+            onPageSizeChanged = { pageSize = it; currentPage = 0 },
+            onConfirm = {
+                isExecutingTrash = true
+                coroutineScope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            val database = DatabaseFactory.createDatabase()
+                            val authManager = GmailAuthManager()
+                            val gmailService = authManager.getGmailService()
+                            val triageService = com.michelelopsdev.gfa.domain.GmailTriageService(gmailService, database.emailDao())
+                            
+                            triageService.executeTrash(selectedEmails.toList()) { current, total ->
+                                trashProgressMsg = "$current / $total rimosse"
+                            }
+                        }
+                        onSetStatusMessage("Pulizia completata con successo! ${selectedEmails.size} rimosse.")
+                        previewEmails = null
+                        selectedEmails = emptySet()
+                    } catch (e: Exception) {
+                        onSetStatusMessage("Errore Pulizia: ${e.message}")
+                    } finally {
+                        isExecutingTrash = false
+                    }
+                }
+            },
+            onCancel = {
+                previewEmails = null
+                selectedEmails = emptySet()
+            },
+            isDarkTheme = isDarkTheme,
+            isExecuting = isExecutingTrash,
+            progressMsg = trashProgressMsg,
+            coroutineScope = coroutineScope
+        )
+        return // Esce e renderizza solo l'anteprima
+    }
+
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Text("Fase 2: Generazione Regole di Pulizia", color = MaterialTheme.colorScheme.onBackground, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         
@@ -558,19 +619,22 @@ fun CleanupScreen(
             
             Button(
                 onClick = {
-                    onSetStatusMessage("Pulizia Triage in corso (Fase 3)...")
+                    onSetStatusMessage("Calcolo anteprima in corso...")
                     coroutineScope.launch {
                         try {
-                            withContext(Dispatchers.IO) {
+                            val emailsToTrash = withContext(Dispatchers.IO) {
                                 val database = DatabaseFactory.createDatabase()
                                 val authManager = GmailAuthManager()
                                 val gmailService = authManager.getGmailService()
                                 val triageService = com.michelelopsdev.gfa.domain.GmailTriageService(gmailService, database.emailDao())
-                                triageService.startTriage()
+                                triageService.simulateTriage()
                             }
-                            onSetStatusMessage("Pulizia completata con successo!")
+                            previewEmails = emailsToTrash
+                            selectedEmails = emailsToTrash.map { it.id }.toSet()
+                            currentPage = 0
+                            onSetStatusMessage("Anteprima caricata: ${emailsToTrash.size} email individuate.")
                         } catch (e: Exception) {
-                            onSetStatusMessage("Errore Pulizia: ${e.message}")
+                            onSetStatusMessage("Errore anteprima: ${e.message}")
                         }
                     }
                 },
