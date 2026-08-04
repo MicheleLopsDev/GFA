@@ -222,8 +222,10 @@ fun App() {
                                         val outputDir = java.io.File(System.getProperty("user.home"), ".gfa/output")
                                         if (outputDir.exists()) outputDir.deleteRecursively()
                                         
-                                        // Svuota il database senza eliminare i file per evitare lock di sistema
-                                        DatabaseFactory.createDatabase().clearAllTables()
+                                        // Svuota il database tramite DAO
+                                        val dao = DatabaseFactory.createDatabase().emailDao()
+                                        dao.clearProcessedEmails()
+                                        dao.clearTriagedEmails()
                                         
                                         // Elimina il file Excel esportato se esiste
                                         val exportFile = java.io.File(System.getProperty("user.dir"), "GFA_Export_Email.xlsx")
