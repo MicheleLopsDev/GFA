@@ -19,6 +19,26 @@ import com.michelelopsdev.gfa.data.model.EmailData
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+
+fun parseEmailDate(dateStr: String): LocalDate? {
+    try {
+        return java.time.ZonedDateTime.parse(dateStr, DateTimeFormatter.RFC_1123_DATE_TIME).toLocalDate()
+    } catch(e: Exception) {}
+    try {
+        return java.time.LocalDateTime.parse(dateStr, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")).toLocalDate()
+    } catch(e: Exception) {}
+    return null
+}
+
+fun parseFilterDate(dateStr: String): LocalDate? {
+    try {
+        return LocalDate.parse(dateStr, DateTimeFormatter.ofPattern("dd/MM/yyyy"))
+    } catch(e: Exception) { return null }
+}
 
 @Composable
 fun PreviewDashboard(
@@ -39,14 +59,39 @@ fun PreviewDashboard(
     progressMsg: String,
     coroutineScope: CoroutineScope
 ) {
-    val topSenders = remember(emails) {
-        emails.groupingBy { 
+    var filterTitolo by remember { mutableStateOf("") }
+    var filterMittente by remember { mutableStateOf("") }
+    var filterDataDa by remember { mutableStateOf("") }
+    var filterDataA by remember { mutableStateOf("") }
+    var selectedEmailBody by remember { mutableStateOf<EmailData?>(null) }
+
+    val filteredEmails = remember(emails, filterTitolo, filterMittente, filterDataDa, filterDataA) {
+        val daDate = parseFilterDate(filterDataDa)
+        val aDate = parseFilterDate(filterDataA)
+        
+        emails.filter { email ->
+            val matchesTitolo = if (filterTitolo.isBlank()) true else email.titolo.contains(filterTitolo, ignoreCase = true)
+            val matchesMittente = if (filterMittente.isBlank()) true else email.da.contains(filterMittente, ignoreCase = true)
+            var matchesDate = true
+            if (daDate != null || aDate != null) {
+                val emailDate = parseEmailDate(email.data)
+                if (emailDate != null) {
+                    if (daDate != null && emailDate.isBefore(daDate)) matchesDate = false
+                    if (aDate != null && emailDate.isAfter(aDate)) matchesDate = false
+                }
+            }
+            matchesTitolo && matchesMittente && matchesDate
+        }
+    }
+
+    val topSenders = remember(filteredEmails) {
+        filteredEmails.groupingBy { 
             val emailPart = if (it.da.contains("<")) it.da.substringAfter("<").substringBefore(">") else it.da
             emailPart.trim().lowercase()
         }.eachCount().entries.sortedByDescending { it.value }.take(10)
     }
 
-    val sortedEmails = remember(emails, sortColumn, sortAscending) {
+    val sortedEmails = remember(filteredEmails, sortColumn, sortAscending) {
         val comparator = when (sortColumn) {
             "ID" -> compareBy<EmailData> { it.id }
             "Data" -> compareBy { it.data }
@@ -54,7 +99,7 @@ fun PreviewDashboard(
             "Titolo" -> compareBy { it.titolo }
             else -> compareBy { it.data }
         }
-        if (sortAscending) emails.sortedWith(comparator) else emails.sortedWith(comparator.reversed())
+        if (sortAscending) filteredEmails.sortedWith(comparator) else filteredEmails.sortedWith(comparator.reversed())
     }
 
     val totalPages = (sortedEmails.size + pageSize - 1) / pageSize
@@ -70,7 +115,19 @@ fun PreviewDashboard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text("Anteprima Pulizia (Trash)", color = MaterialTheme.colorScheme.onBackground, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            Text("${emails.size} email da eliminare", color = Color(0xFFE91E63), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+            Text("${filteredEmails.size} email trovate", color = Color(0xFFE91E63), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Barra di Ricerca
+        Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+            Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(value = filterMittente, onValueChange = { filterMittente = it; onPageChanged(0) }, label = { Text("Cerca Mittente") }, modifier = Modifier.weight(1f), singleLine = true)
+                OutlinedTextField(value = filterTitolo, onValueChange = { filterTitolo = it; onPageChanged(0) }, label = { Text("Cerca Titolo") }, modifier = Modifier.weight(1f), singleLine = true)
+                OutlinedTextField(value = filterDataDa, onValueChange = { filterDataDa = it; onPageChanged(0) }, label = { Text("Data Da (gg/mm/aaaa)") }, modifier = Modifier.weight(1f), singleLine = true)
+                OutlinedTextField(value = filterDataA, onValueChange = { filterDataA = it; onPageChanged(0) }, label = { Text("Data A (gg/mm/aaaa)") }, modifier = Modifier.weight(1f), singleLine = true)
+            }
         }
         
         Spacer(modifier = Modifier.height(16.dp))
@@ -129,13 +186,13 @@ fun PreviewDashboard(
             // Seleziona tutto / Deseleziona tutto
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(
-                    checked = selectedEmails.size == emails.size,
+                    checked = selectedEmails.containsAll(filteredEmails.map { it.id }),
                     onCheckedChange = { checked ->
-                        if (checked) onSelectionChanged(emails.map { it.id }.toSet())
-                        else onSelectionChanged(emptySet())
+                        if (checked) onSelectionChanged(selectedEmails + filteredEmails.map { it.id }.toSet())
+                        else onSelectionChanged(selectedEmails - filteredEmails.map { it.id }.toSet())
                     }
                 )
-                Text("Seleziona Tutte", color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp)
+                Text("Seleziona Tutte (Viste)", color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp)
             }
         }
 
@@ -154,9 +211,13 @@ fun PreviewDashboard(
             }
             
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { onPageChanged(safeCurrentPage - 1) }, enabled = safeCurrentPage > 0) { Text("Precedente") }
-                Text("Pagina ${safeCurrentPage + 1} di $totalPages", color = MaterialTheme.colorScheme.onBackground)
-                Button(onClick = { onPageChanged(safeCurrentPage + 1) }, enabled = safeCurrentPage < totalPages - 1) { Text("Successiva") }
+                Button(onClick = { onPageChanged(0) }, enabled = safeCurrentPage > 0) { Text("|<<") }
+                Button(onClick = { onPageChanged(safeCurrentPage - 10) }, enabled = safeCurrentPage > 0) { Text("<< -10") }
+                Button(onClick = { onPageChanged(safeCurrentPage - 1) }, enabled = safeCurrentPage > 0) { Text("< Prec") }
+                Text("Pag ${safeCurrentPage + 1} di ${maxOf(1, totalPages)}", color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
+                Button(onClick = { onPageChanged(safeCurrentPage + 1) }, enabled = safeCurrentPage < totalPages - 1) { Text("Succ >") }
+                Button(onClick = { onPageChanged(safeCurrentPage + 10) }, enabled = safeCurrentPage < totalPages - 1) { Text("+10 >>") }
+                Button(onClick = { onPageChanged(totalPages - 1) }, enabled = safeCurrentPage < totalPages - 1) { Text(">>|") }
             }
         }
 
@@ -170,6 +231,7 @@ fun PreviewDashboard(
         ) {
             Row(modifier = Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Spacer(modifier = Modifier.width(48.dp)) // Checkbox space
+                Spacer(modifier = Modifier.width(32.dp)) // Attach icon space
                 TableHeader("ID", sortColumn, sortAscending, onSortChanged, Modifier.weight(1f))
                 TableHeader("Data", sortColumn, sortAscending, onSortChanged, Modifier.weight(1.5f))
                 TableHeader("Mittente", sortColumn, sortAscending, onSortChanged, Modifier.weight(2f))
@@ -193,14 +255,47 @@ fun PreviewDashboard(
                             onSelectionChanged(newSet)
                         }
                     )
+                    if (email.haAllegati) {
+                        Text("📎", modifier = Modifier.width(32.dp))
+                    } else {
+                        Spacer(modifier = Modifier.width(32.dp))
+                    }
                     Text(email.id, modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(email.data, modifier = Modifier.weight(1.5f), color = MaterialTheme.colorScheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(email.da, modifier = Modifier.weight(2f), color = MaterialTheme.colorScheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(email.titolo, modifier = Modifier.weight(3f), color = MaterialTheme.colorScheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(email.titolo, modifier = Modifier.weight(3f).clickable { selectedEmailBody = email }, color = Color(0xFF00E5FF), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Divider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
             }
         }
+    }
+    
+    if (selectedEmailBody != null) {
+        AlertDialog(
+            onDismissRequest = { selectedEmailBody = null },
+            title = { Text(selectedEmailBody!!.titolo, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface) },
+            text = {
+                Column(modifier = Modifier.widthIn(max = 600.dp)) {
+                    Text("Da: ${selectedEmailBody!!.da}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+                    Text("Data: ${selectedEmailBody!!.data}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+                    if (selectedEmailBody!!.haAllegati) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("Allegati: ${selectedEmailBody!!.nomiAllegati.joinToString()}", color = Color(0xFFE91E63))
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Box(modifier = Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
+                        Text(selectedEmailBody!!.testo, color = MaterialTheme.colorScheme.onBackground)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { selectedEmailBody = null }) {
+                    Text("Chiudi")
+                }
+            }
+        )
     }
 }
 
