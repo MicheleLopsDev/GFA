@@ -93,7 +93,7 @@ class GeminiAnalyzerService {
             Crea espressioni regolari (regex) intelligenti. Raggruppa domini simili con (dominio1|dominio2) se l'azione è la stessa per risparmiare regole.
         """.trimIndent()
 
-        println("Contatto Gemini 1.5 Flash via REST API per la generazione delle regole di pulizia...")
+        println("Contatto Gemini 3.6 Flash via REST API per la generazione delle regole di pulizia...")
 
         val requestBody = buildJsonObject {
             put("contents", buildJsonArray {
@@ -103,7 +103,7 @@ class GeminiAnalyzerService {
 
         val client = HttpClient.newHttpClient()
         val request = HttpRequest.newBuilder()
-            .uri(URI.create("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey"))
+            .uri(URI.create("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=$apiKey"))
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(requestBody))
             .build()
