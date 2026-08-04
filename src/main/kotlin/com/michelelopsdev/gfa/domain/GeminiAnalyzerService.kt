@@ -76,6 +76,12 @@ class GeminiAnalyzerService {
             Il tuo compito è generare regole di classificazione in formato JSON ESCLUSIVAMENTE per eliminare la spazzatura (Newsletter, Spam, Social, Notifiche automatiche inutili).
             Ignora (non creare regole per) i domini che sembrano importanti (es. banche, comunicazioni personali, lavoro), perché ce ne occuperemo nella Fase 4.
             
+            ATTENZIONE: DEVI ASSOLUTAMENTE ESCLUDERE DAL CESTINO (NON creare regole TRASH per):
+            - Email che contengono documenti allegati importanti come bollette o fatture.
+            - Documenti bancari, finanziari o assicurativi.
+            - Documenti personali.
+            - Tutto quello che riguarda la salute, come comunicazioni mediche, referti o prenotazioni.
+            
             Il JSON DEVE avere questa struttura esatta, senza markdown o testo aggiuntivo (solo il JSON nudo e crudo):
             {
               "rules": [
