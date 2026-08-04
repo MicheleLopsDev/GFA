@@ -211,6 +211,7 @@ fun App() {
                         }
                     )
                     Screen.CLEANUP -> CleanupScreen(
+                        isDarkTheme = isDarkTheme,
                         onSetStatusMessage = { statusMessage = it },
                         coroutineScope = coroutineScope
                     )
@@ -461,6 +462,7 @@ fun ExtractionScreen(
 
 @Composable
 fun CleanupScreen(
+    isDarkTheme: Boolean,
     onSetStatusMessage: (String) -> Unit,
     coroutineScope: kotlinx.coroutines.CoroutineScope
 ) {
