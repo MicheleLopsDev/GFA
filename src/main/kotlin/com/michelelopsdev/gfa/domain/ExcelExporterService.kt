@@ -10,10 +10,11 @@ import java.io.FileOutputStream
 
 class ExcelExporterService {
     private val outputDir = File(System.getProperty("user.home"), ".gfa/output")
-    private val exportFile = File(System.getProperty("user.home"), "Desktop/GFA_Export_Email.xlsx")
+    // Salviamo nella cartella del progetto per evitare conflitti con OneDrive
+    private val exportFile = File(System.getProperty("user.dir"), "GFA_Export_Email.xlsx")
 
-    suspend fun exportToExcel() = withContext(Dispatchers.IO) {
-        if (!outputDir.exists()) return@withContext
+    suspend fun exportToExcel(): String? = withContext(Dispatchers.IO) {
+        if (!outputDir.exists()) return@withContext null
         
         val jsonFiles = outputDir.listFiles { _, name -> name.startsWith("emails_part_") && name.endsWith(".json") }
         if (jsonFiles == null || jsonFiles.isEmpty()) {
@@ -60,5 +61,6 @@ class ExcelExporterService {
             }
         }
         println("Export completato! File salvato in: ${exportFile.absolutePath}")
+        return@withContext exportFile.absolutePath
     }
 }

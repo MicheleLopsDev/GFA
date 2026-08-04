@@ -150,8 +150,12 @@ fun App() {
                                 statusMessage = "Esportazione in Excel in corso..."
                                 coroutineScope.launch {
                                     try {
-                                        ExcelExporterService().exportToExcel()
-                                        statusMessage = "Esportazione Excel completata sul Desktop!"
+                                        val savedPath = ExcelExporterService().exportToExcel()
+                                        statusMessage = if (savedPath != null) {
+                                            "Export completato in: $savedPath"
+                                        } else {
+                                            "Errore: Nessun dato da esportare."
+                                        }
                                     } catch (e: Exception) {
                                         statusMessage = "Errore Export: ${e.message}"
                                     }
