@@ -35,8 +35,8 @@ fun TabButton(text: String, isSelected: Boolean, onClick: () -> Unit) {
     Button(
         onClick = onClick,
         colors = ButtonDefaults.buttonColors(
-            containerColor = if (isSelected) Color(0xFF00E5FF) else Color(0xFF333333),
-            contentColor = if (isSelected) Color.Black else Color.White
+            containerColor = if (isSelected) Color(0xFF00E5FF) else MaterialTheme.colorScheme.surfaceVariant,
+            contentColor = if (isSelected) Color.Black else MaterialTheme.colorScheme.onBackground
         )
     ) {
         Text(text, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
@@ -122,12 +122,32 @@ fun App() {
         }
     }
 
-    MaterialTheme {
-        Column(modifier = Modifier.fillMaxSize().background(Color(0xFF121212))) {
+    var isDarkTheme by remember { mutableStateOf(true) }
+
+    val colors = if (isDarkTheme) {
+        darkColorScheme(
+            background = Color(0xFF121212),
+            surface = Color(0xFF1E1E1E),
+            surfaceVariant = Color(0xFF333333),
+            onBackground = Color.White,
+            onSurface = Color.LightGray
+        )
+    } else {
+        lightColorScheme(
+            background = Color(0xFFF5F5F5),
+            surface = Color.White,
+            surfaceVariant = Color(0xFFE0E0E0),
+            onBackground = Color.Black,
+            onSurface = Color.DarkGray
+        )
+    }
+
+    MaterialTheme(colorScheme = colors) {
+        Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             
             // HEADER - Controlli orizzontali in alto
             Surface(
-                color = Color(0xFF1E1E1E),
+                color = MaterialTheme.colorScheme.surface,
                 shadowElevation = 8.dp,
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -141,9 +161,12 @@ fun App() {
                             "Gmail Filter Advanced (GFA)",
                             fontSize = 24.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = MaterialTheme.colorScheme.onBackground
                         )
-                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Button(onClick = { isDarkTheme = !isDarkTheme }) {
+                                Text(if (isDarkTheme) "☀️ Chiaro" else "🌙 Scuro")
+                            }
                             TabButton("1. Mission Control", currentScreen == Screen.EXTRACTION) { currentScreen = Screen.EXTRACTION }
                             TabButton("2. Pulizia (Trash)", currentScreen == Screen.CLEANUP) { currentScreen = Screen.CLEANUP }
                             TabButton("3. Backup (Allegati)", currentScreen == Screen.BACKUP) { currentScreen = Screen.BACKUP }
@@ -345,28 +368,28 @@ fun ExtractionScreen(
             // KPIs
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E)),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     modifier = Modifier.width(220.dp)
                 ) {
                     Column(
                         modifier = Modifier.padding(16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text("Email Elaborate / Totali", color = Color.LightGray, fontSize = 14.sp)
+                        Text("Email Elaborate / Totali", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
                         val totalStr = if (totalInbox > 0) " / $totalInbox" else ""
-                        Text("$totalProcessed$totalStr", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                        Text("$totalProcessed$totalStr", color = MaterialTheme.colorScheme.onBackground, fontSize = 28.sp, fontWeight = FontWeight.Bold)
                     }
                 }
                 
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E)),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     modifier = Modifier.width(180.dp)
                 ) {
                     Column(
                         modifier = Modifier.padding(16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text("Velocità (msg/s)", color = Color.LightGray, fontSize = 14.sp)
+                        Text("Velocità (msg/s)", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
                         Text("$currentSpeed", color = Color(0xFF00E5FF), fontSize = 28.sp, fontWeight = FontWeight.Bold)
                     }
                 }
@@ -391,7 +414,7 @@ fun ExtractionScreen(
                 
                 Text(
                     "Da scaricare: ${100 - displayPercent}%", 
-                    color = Color.LightGray, 
+                    color = MaterialTheme.colorScheme.onSurface, 
                     fontWeight = FontWeight.Bold
                 )
                 
@@ -444,6 +467,8 @@ fun CleanupScreen(
     var requestLog by remember { mutableStateOf("") }
     var responseLog by remember { mutableStateOf("") }
     var userEmail by remember { mutableStateOf("Caricamento...") }
+    var successfulModel by remember { mutableStateOf<String?>(null) }
+    var failedModels by remember { mutableStateOf<List<String>>(emptyList()) }
 
     LaunchedEffect(Unit) {
         coroutineScope.launch(Dispatchers.IO) {
@@ -463,8 +488,13 @@ fun CleanupScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("Fase 2: Generazione Regole di Pulizia (Trash)", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Text("Account in pulizia: $userEmail", color = Color(0xFF00E5FF), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Text("Fase 2: Generazione Regole di Pulizia", color = MaterialTheme.colorScheme.onBackground, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            
+            // Render the account name MUCH bigger
+            Column(horizontalAlignment = Alignment.End) {
+                Text("Account in Pulizia:", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+                Text(userEmail, color = Color(0xFF00E5FF), fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+            }
         }
         
         Spacer(modifier = Modifier.height(16.dp))
@@ -475,9 +505,11 @@ fun CleanupScreen(
                     onSetStatusMessage("Analisi Gemini in corso (Fase 2)...")
                     coroutineScope.launch {
                         try {
-                            com.michelelopsdev.gfa.domain.GeminiAnalyzerService().generateRules { req, res ->
+                            com.michelelopsdev.gfa.domain.GeminiAnalyzerService().generateRules { req, res, sModel, fModels ->
                                 requestLog = req
                                 responseLog = res
+                                successfulModel = sModel
+                                failedModels = fModels
                             }
                             onSetStatusMessage("Regole generate con successo! (Fase 2)")
                         } catch (e: Exception) {
@@ -514,23 +546,42 @@ fun CleanupScreen(
             }
         }
         
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(16.dp))
         
+        // Pannello Info Modelli Fallback
+        if (successfulModel != null || failedModels.isNotEmpty()) {
+            Surface(
+                color = MaterialTheme.colorScheme.surface,
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    if (failedModels.isNotEmpty()) {
+                        Text("Modelli congestionati (scartati): ${failedModels.joinToString(", ")}", color = Color(0xFFE91E63), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                    if (successfulModel != null) {
+                        Text("Modello che ha risposto con successo: $successfulModel", color = Color(0xFF4CAF50), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
         Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             // Request Log
             Column(modifier = Modifier.weight(1f)) {
-                Text("Dati Inviati a Gemini (Request)", color = Color.LightGray, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text("Dati Inviati a Gemini (Request)", color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
                         .padding(8.dp)
                 ) {
                     val scrollState = rememberScrollState()
                     Text(
                         text = requestLog.ifEmpty { "Nessuna richiesta inviata ancora..." },
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onBackground,
                         fontSize = 12.sp,
                         modifier = Modifier.verticalScroll(scrollState)
                     )
@@ -539,18 +590,18 @@ fun CleanupScreen(
 
             // Response Log
             Column(modifier = Modifier.weight(1f)) {
-                Text("Risposta da Gemini (Response)", color = Color.LightGray, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text("Risposta da Gemini (Response)", color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
                         .padding(8.dp)
                 ) {
                     val scrollState = rememberScrollState()
                     Text(
                         text = responseLog.ifEmpty { "In attesa di risposta..." },
-                        color = Color(0xFF00E5FF),
+                        color = if (isDarkTheme) Color(0xFF00E5FF) else Color(0xFF00838F),
                         fontSize = 12.sp,
                         modifier = Modifier.verticalScroll(scrollState)
                     )
@@ -566,10 +617,10 @@ fun BackupScreen(
     coroutineScope: kotlinx.coroutines.CoroutineScope
 ) {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text("Fase 4: Backup Allegati e Etichette", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text("Fase 4: Backup Allegati e Etichette", color = MaterialTheme.colorScheme.onBackground, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(16.dp))
         
-        Text("Le funzioni di Backup e analisi delle rimanenze saranno implementate qui.", color = Color.LightGray)
+        Text("Le funzioni di Backup e analisi delle rimanenze saranno implementate qui.", color = MaterialTheme.colorScheme.onSurface)
     }
 }
 

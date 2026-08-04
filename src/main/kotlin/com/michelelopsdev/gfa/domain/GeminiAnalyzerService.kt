@@ -18,7 +18,7 @@ class GeminiAnalyzerService {
 
 
     // Nuova logica di aggregazione pulita
-    suspend fun generateCleanupRules(onLog: ((String, String) -> Unit)? = null) = withContext(Dispatchers.IO) {
+    suspend fun generateCleanupRules(onLog: ((String, String, String?, List<String>) -> Unit)? = null) = withContext(Dispatchers.IO) {
         if (!apiKeyFile.exists()) throw IllegalStateException("API Key mancante! Crea il file ${apiKeyFile.absolutePath}")
         val apiKey = apiKeyFile.readText().trim()
         if (apiKey.isEmpty()) throw IllegalStateException("L'API Key è vuota.")
@@ -96,6 +96,8 @@ class GeminiAnalyzerService {
         val modelsToTry = listOf("gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.6-flash", "gemini-2.0-flash")
         var lastError = ""
         var success = false
+        var successfulModel: String? = null
+        val failedModels = mutableListOf<String>()
 
         for (modelName in modelsToTry) {
             println("Tentativo con il modello: $modelName...")
@@ -124,13 +126,15 @@ class GeminiAnalyzerService {
                 val cleanJson = outputText.removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
                 rulesFile.writeText(cleanJson)
                 println("File regole di pulizia (Fase 2) generato in: ${rulesFile.absolutePath} usando $modelName")
-                onLog?.invoke(prompt, cleanJson)
+                successfulModel = modelName
+                onLog?.invoke(prompt, cleanJson, successfulModel, failedModels)
                 success = true
                 break // Esce dal loop se ha avuto successo
             } else {
-                lastError = "Errore $modelName: ${response.body()}"
+                lastError = "Errore $modelName: ${response.statusCode()}"
                 println(lastError)
-                onLog?.invoke(prompt, lastError)
+                failedModels.add("$modelName (KO: ${response.statusCode()})")
+                onLog?.invoke(prompt, lastError, null, failedModels)
                 // Se c'è errore, continua il loop col prossimo modello
             }
         }
@@ -141,7 +145,7 @@ class GeminiAnalyzerService {
     }
     
     // Per retrocompatibilità temporanea chiamiamo la nuova funzione
-    suspend fun generateRules(onLog: ((String, String) -> Unit)? = null) {
+    suspend fun generateRules(onLog: ((String, String, String?, List<String>) -> Unit)? = null) {
         generateCleanupRules(onLog)
     }
 
