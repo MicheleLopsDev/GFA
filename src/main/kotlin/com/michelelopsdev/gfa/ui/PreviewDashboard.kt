@@ -23,6 +23,10 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.onClick
+import androidx.compose.foundation.PointerMatcher
+import androidx.compose.ui.input.pointer.PointerButton
 
 fun parseEmailDate(dateStr: String): LocalDate? {
     try {
@@ -40,6 +44,7 @@ fun parseFilterDate(dateStr: String): LocalDate? {
     } catch(e: Exception) { return null }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PreviewDashboard(
     emails: List<EmailData>,
@@ -267,33 +272,55 @@ fun PreviewDashboard(
         }
 
         // Table Body
-        LazyColumn(
-            modifier = Modifier.fillMaxWidth().weight(1f).background(MaterialTheme.colorScheme.surface)
-        ) {
-            items(pagedEmails) { email ->
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Checkbox(
-                        checked = selectedEmails.contains(email.id),
-                        onCheckedChange = { checked ->
-                            val newSet = if (checked) selectedEmails + email.id else selectedEmails - email.id
-                            onSelectionChanged(newSet)
-                        }
-                    )
-                    if (email.haAllegati) {
-                        Text("📎", modifier = Modifier.width(32.dp))
-                    } else {
-                        Spacer(modifier = Modifier.width(32.dp))
-                    }
-                    Text(email.id, modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(email.data, modifier = Modifier.weight(1.5f), color = MaterialTheme.colorScheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(email.da, modifier = Modifier.weight(2f), color = MaterialTheme.colorScheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(email.titolo, modifier = Modifier.weight(3f).clickable { selectedEmailBody = email }, color = Color(0xFF00E5FF), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+        Box(modifier = Modifier.fillMaxWidth().weight(1f).background(MaterialTheme.colorScheme.surface)) {
+            val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+            LaunchedEffect(safeCurrentPage) {
+                listState.scrollToItem(0)
             }
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                items(pagedEmails) { email ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = selectedEmails.contains(email.id),
+                            onCheckedChange = { checked ->
+                                val newSet = if (checked) selectedEmails + email.id else selectedEmails - email.id
+                                onSelectionChanged(newSet)
+                            }
+                        )
+                        if (email.haAllegati) {
+                            Text("📎", modifier = Modifier.width(32.dp))
+                        } else {
+                            Spacer(modifier = Modifier.width(32.dp))
+                        }
+                        Text(email.id, modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(email.data, modifier = Modifier.weight(1.5f), color = MaterialTheme.colorScheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        
+                        Text(
+                            email.da, 
+                            modifier = Modifier.weight(2f).onClick(
+                                matcher = PointerMatcher.mouse(PointerButton.Secondary),
+                                onClick = { filterMittente = email.da }
+                            ), 
+                            color = MaterialTheme.colorScheme.onBackground, 
+                            maxLines = 1, 
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        
+                        Text(email.titolo, modifier = Modifier.weight(3f).clickable { selectedEmailBody = email }, color = Color(0xFF00E5FF), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                }
+            }
+            androidx.compose.foundation.VerticalScrollbar(
+                modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
+                adapter = androidx.compose.foundation.rememberScrollbarAdapter(scrollState = listState)
+            )
         }
     }
     
