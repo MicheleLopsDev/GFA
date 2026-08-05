@@ -15,7 +15,8 @@ data class Rule(
     val patternMittente: String? = null,
     val patternOggetto: String? = null,
     val action: TriageAction,
-    val labelName: String? = null // Usato solo se action == KEEP_AND_LABEL
+    val labelName: String? = null, // Usato solo se action == KEEP_AND_LABEL
+    val isActive: Boolean = true // Per spegnere le regole senza cancellarle
 )
 
 @Serializable

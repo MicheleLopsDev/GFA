@@ -14,6 +14,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
@@ -28,7 +29,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
-enum class Screen { EXTRACTION, CLEANUP, BACKUP }
+const val APP_VERSION = "1.0.1"
+
+enum class Screen { EXTRACTION, CLEANUP, BACKUP, EDITOR, HELP }
 
 @Composable
 fun TabButton(text: String, isSelected: Boolean, onClick: () -> Unit) {
@@ -167,14 +170,15 @@ fun App() {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
+                    // Prima riga: Titolo e Info Account
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            "Gmail Filter Advanced (GFA)",
-                            fontSize = 24.sp,
+                            "Gmail Filter Advanced",
+                            fontSize = 20.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onBackground
                         )
@@ -183,10 +187,22 @@ fun App() {
                             Button(onClick = { isDarkTheme = !isDarkTheme }) {
                                 Text(if (isDarkTheme) "☀️ Chiaro" else "🌙 Scuro")
                             }
-                            TabButton("1. Mission Control", currentScreen == Screen.EXTRACTION) { currentScreen = Screen.EXTRACTION }
-                            TabButton("2. Pulizia (Trash)", currentScreen == Screen.CLEANUP) { currentScreen = Screen.CLEANUP }
-                            TabButton("3. Backup (Allegati)", currentScreen == Screen.BACKUP) { currentScreen = Screen.BACKUP }
                         }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    // Seconda riga: I Tab, resi scrollabili
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TabButton("1. Mission Control", currentScreen == Screen.EXTRACTION) { currentScreen = Screen.EXTRACTION }
+                        TabButton("2. Pulizia (Trash)", currentScreen == Screen.CLEANUP) { currentScreen = Screen.CLEANUP }
+                        TabButton("3. Editor Regole", currentScreen == Screen.EDITOR) { currentScreen = Screen.EDITOR }
+                        TabButton("4. Backup (Allegati)", currentScreen == Screen.BACKUP) { currentScreen = Screen.BACKUP }
+                        TabButton("5. Guida / Help", currentScreen == Screen.HELP) { currentScreen = Screen.HELP }
                     }
                     
                     Spacer(modifier = Modifier.height(16.dp))
@@ -232,8 +248,17 @@ fun App() {
                         coroutineScope = coroutineScope
                     )
                     Screen.BACKUP -> BackupScreen(
+                        isDarkTheme = isDarkTheme,
                         onSetStatusMessage = { statusMessage = it },
                         coroutineScope = coroutineScope
+                    )
+                    Screen.EDITOR -> com.michelelopsdev.gfa.ui.RulesEditorScreen(
+                        isDarkTheme = isDarkTheme,
+                        onSetStatusMessage = { statusMessage = it },
+                        coroutineScope = coroutineScope
+                    )
+                    Screen.HELP -> com.michelelopsdev.gfa.ui.HelpScreen(
+                        onSetStatusMessage = { statusMessage = it }
                     )
                 }
             }
@@ -486,11 +511,29 @@ fun CleanupScreen(
     var responseLog by remember { mutableStateOf("") }
     var successfulModel by remember { mutableStateOf<String?>(null) }
     var failedModels by remember { mutableStateOf<List<String>>(emptyList()) }
+    var lastRunTimestamp by remember { mutableStateOf<Long?>(null) }
     
-    val allAvailableModels = listOf("gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.6-flash", "gemini-2.0-flash")
+    val allAvailableModels = listOf("gemini-3.6-flash", "gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.0-flash")
     var selectedModels by remember { mutableStateOf(allAvailableModels) }
     var isGenerating by remember { mutableStateOf(false) }
     var currentProgressMsg by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) {
+        val logFile = java.io.File(System.getProperty("user.home"), ".gfa/last_gemini_run.json")
+        if (logFile.exists()) {
+            try {
+                val jsonParser = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+                val log = jsonParser.decodeFromString<com.michelelopsdev.gfa.data.model.GeminiSessionLog>(logFile.readText())
+                requestLog = log.request
+                responseLog = log.response
+                successfulModel = log.successfulModel
+                failedModels = log.failedModels
+                lastRunTimestamp = log.timestamp
+            } catch (e: Exception) {
+                // Ignore parsing errors
+            }
+        }
+    }
 
     // Preview Mode States
     var previewEmails by remember { mutableStateOf<List<com.michelelopsdev.gfa.data.model.EmailData>?>(null) }
@@ -592,7 +635,7 @@ fun CleanupScreen(
                     currentProgressMsg = "Inizializzazione..."
                     onSetStatusMessage("Analisi Gemini in corso (Fase 2)...")
                     
-                    // Se genero nuove regole, azzero la cache della preview
+                    // Se genero nuove regole, azzero la cache della preview e i file vecchi vengono sovrascritti!
                     previewEmails = null
                     selectedEmails = emptySet()
                     showPreviewDashboard = false
@@ -607,6 +650,21 @@ fun CleanupScreen(
                                     responseLog = res
                                     successfulModel = sModel
                                     failedModels = fModels
+                                    lastRunTimestamp = System.currentTimeMillis()
+                                    
+                                    try {
+                                        val log = com.michelelopsdev.gfa.data.model.GeminiSessionLog(
+                                            timestamp = lastRunTimestamp!!,
+                                            request = req,
+                                            response = res,
+                                            successfulModel = sModel,
+                                            failedModels = fModels
+                                        )
+                                        val logFile = java.io.File(System.getProperty("user.home"), ".gfa/last_gemini_run.json")
+                                        logFile.writeText(kotlinx.serialization.json.Json.encodeToString(com.michelelopsdev.gfa.data.model.GeminiSessionLog.serializer(), log))
+                                    } catch (e: Exception) {
+                                        // Ignore save errors
+                                    }
                                 }
                             )
                             onSetStatusMessage("Regole generate con successo! (Fase 2)")
@@ -622,6 +680,32 @@ fun CleanupScreen(
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF9C27B0))
             ) {
                 Text(if (isGenerating) "Generazione in corso..." else "Genera Regole IA (Trash)", color = Color.White)
+            }
+            
+            Button(
+                onClick = {
+                    // Cancella tutto lo storico e i file associati
+                    requestLog = ""
+                    responseLog = ""
+                    successfulModel = null
+                    failedModels = emptyList()
+                    lastRunTimestamp = null
+                    previewEmails = null
+                    selectedEmails = emptySet()
+                    showPreviewDashboard = false
+                    
+                    val logFile = java.io.File(System.getProperty("user.home"), ".gfa/last_gemini_run.json")
+                    if (logFile.exists()) logFile.delete()
+                    
+                    val rulesFile = java.io.File(System.getProperty("user.home"), ".gfa/rules.json")
+                    if (rulesFile.exists()) rulesFile.delete()
+                    
+                    onSetStatusMessage("Regole e storico cancellati correttamente.")
+                },
+                enabled = !isGenerating && (lastRunTimestamp != null || java.io.File(System.getProperty("user.home"), ".gfa/rules.json").exists()),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF44336))
+            ) {
+                Text("Cancella Regole Precedenti", color = Color.White)
             }
             
             Button(
@@ -664,13 +748,18 @@ fun CleanupScreen(
         Spacer(modifier = Modifier.height(16.dp))
         
         // Pannello Info Modelli Fallback
-        if (successfulModel != null || failedModels.isNotEmpty()) {
+        if (successfulModel != null || failedModels.isNotEmpty() || lastRunTimestamp != null) {
             Surface(
                 color = MaterialTheme.colorScheme.surface,
                 shape = RoundedCornerShape(8.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
+                    if (lastRunTimestamp != null) {
+                        val sdf = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss")
+                        Text("Ultima Invocazione IA: ${sdf.format(java.util.Date(lastRunTimestamp!!))}", color = Color(0xFFFF9800), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
                     if (failedModels.isNotEmpty()) {
                         Text("Modelli congestionati (scartati): ${failedModels.joinToString(", ")}", color = Color(0xFFE91E63), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
@@ -728,21 +817,154 @@ fun CleanupScreen(
 
 @Composable
 fun BackupScreen(
+    isDarkTheme: Boolean,
     onSetStatusMessage: (String) -> Unit,
     coroutineScope: kotlinx.coroutines.CoroutineScope
 ) {
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text("Fase 4: Backup Allegati e Etichette", color = MaterialTheme.colorScheme.onBackground, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+    var previewEmails by remember { mutableStateOf<List<com.michelelopsdev.gfa.data.model.EmailData>?>(null) }
+    var showPreviewDashboard by remember { mutableStateOf(false) }
+    var selectedEmails by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var sortColumn by remember { mutableStateOf("Data") }
+    var sortAscending by remember { mutableStateOf(false) }
+    var currentPage by remember { mutableStateOf(0) }
+    var pageSize by remember { mutableStateOf(50) }
+    var isExecutingDownload by remember { mutableStateOf(false) }
+    var downloadProgressMsg by remember { mutableStateOf("") }
+
+    if (showPreviewDashboard && previewEmails != null) {
+        com.michelelopsdev.gfa.ui.PreviewDashboard(
+            emails = previewEmails!!,
+            selectedEmails = selectedEmails,
+            onSelectionChanged = { selectedEmails = it },
+            sortColumn = sortColumn,
+            onSortChanged = { col ->
+                if (sortColumn == col) sortAscending = !sortAscending
+                else { sortColumn = col; sortAscending = true }
+            },
+            sortAscending = sortAscending,
+            currentPage = currentPage,
+            onPageChanged = { currentPage = it },
+            pageSize = pageSize,
+            onPageSizeChanged = { pageSize = it; currentPage = 0 },
+            onConfirm = {
+                isExecutingDownload = true
+                coroutineScope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            val database = DatabaseFactory.createDatabase()
+                            val authManager = GmailAuthManager()
+                            val gmailService = authManager.getGmailService()
+                            val triageService = com.michelelopsdev.gfa.domain.GmailTriageService(gmailService, database.emailDao())
+                            
+                            val emailsToDownload = previewEmails!!.filter { selectedEmails.contains(it.id) }
+                            
+                            // 1. Esportiamo in Excel
+                            com.michelelopsdev.gfa.domain.ExcelExporterService().exportSpecificEmailsToExcel(emailsToDownload, "Email_Importanti_Salvate.xlsx")
+                            
+                            // 2. Scarichiamo allegati
+                            triageService.executeDownloadGems(emailsToDownload) { current, total ->
+                                downloadProgressMsg = "$current / $total scaricati"
+                            }
+                        }
+                        onSetStatusMessage("Fatto! Email Importanti scaricate e report Excel salvato.")
+                        previewEmails = null
+                        selectedEmails = emptySet()
+                        showPreviewDashboard = false
+                    } catch (e: Exception) {
+                        onSetStatusMessage("Errore Download: ${e.message}")
+                    } finally {
+                        isExecutingDownload = false
+                    }
+                }
+            },
+            onCancel = {
+                showPreviewDashboard = false
+            },
+            isDarkTheme = isDarkTheme,
+            isExecuting = isExecutingDownload,
+            progressMsg = downloadProgressMsg,
+            confirmButtonText = "Scarica Allegati ed Esporta Excel",
+            executingText = "Scaricamento in corso...",
+            onSecondaryAction = {
+                isExecutingDownload = true
+                downloadProgressMsg = "Spostamento nel cestino..."
+                coroutineScope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            val database = DatabaseFactory.createDatabase()
+                            val authManager = GmailAuthManager()
+                            val gmailService = authManager.getGmailService()
+                            val triageService = com.michelelopsdev.gfa.domain.GmailTriageService(gmailService, database.emailDao())
+                            
+                            val emailsToTrash = previewEmails!!.filter { selectedEmails.contains(it.id) }
+                            triageService.executeTrash(emailsToTrash.map { it.id }) { current, total ->
+                                downloadProgressMsg = "$current / $total rimosse"
+                            }
+                            
+                            // Rimuovi dalla cache locale della dashboard
+                            val trashedIds = emailsToTrash.map { it.id }.toSet()
+                            previewEmails = previewEmails!!.filterNot { trashedIds.contains(it.id) }
+                        }
+                        onSetStatusMessage("Email rimosse nel cestino! Puoi continuare con le altre.")
+                        selectedEmails = emptySet()
+                    } catch (e: Exception) {
+                        onSetStatusMessage("Errore Cestino: ${e.message}")
+                    } finally {
+                        isExecutingDownload = false
+                    }
+                }
+            },
+            secondaryButtonText = "Sposta nel Cestino (Trash)",
+            coroutineScope = coroutineScope
+        )
+        return
+    }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("Fase 4: Backup Allegati (Email Importanti)", color = MaterialTheme.colorScheme.onBackground, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(16.dp))
-        
-        Text("Le funzioni di Backup e analisi delle rimanenze saranno implementate qui.", color = MaterialTheme.colorScheme.onSurface)
+        CircularProgressIndicator(color = Color(0xFF00E5FF))
+        Spacer(modifier = Modifier.height(16.dp))
+        Text("Ricerca email importanti con allegati in corso...", color = MaterialTheme.colorScheme.onSurface)
+    }
+
+    LaunchedEffect(Unit) {
+        if (previewEmails == null && !isExecutingDownload) {
+            onSetStatusMessage("Ricerca email importanti con allegati in corso...")
+            coroutineScope.launch {
+                try {
+                    val emailsToDownload = withContext(Dispatchers.IO) {
+                        val database = DatabaseFactory.createDatabase()
+                        val authManager = GmailAuthManager()
+                        val gmailService = authManager.getGmailService()
+                        val triageService = com.michelelopsdev.gfa.domain.GmailTriageService(gmailService, database.emailDao())
+                        triageService.simulateGems()
+                    }
+                    previewEmails = emailsToDownload
+                    selectedEmails = emailsToDownload.map { it.id }.toSet()
+                    currentPage = 0
+                    onSetStatusMessage("Trovate ${emailsToDownload.size} email importanti con allegati.")
+                    showPreviewDashboard = true
+                } catch (e: Exception) {
+                    onSetStatusMessage("Errore ricerca email importanti: ${e.message}")
+                }
+            }
+        } else {
+            showPreviewDashboard = true
+        }
     }
 }
 
 fun main() = application {
+    println("=== AVVIO GFA Versione: $APP_VERSION ===")
+    val windowState = androidx.compose.ui.window.rememberWindowState(
+        width = 1200.dp,
+        height = 800.dp
+    )
     Window(
         onCloseRequest = ::exitApplication,
-        title = "Gmail Filter Advanced (GFA)"
+        title = "Gmail Filter Advanced (GFA) - v$APP_VERSION",
+        state = windowState
     ) {
         App()
     }

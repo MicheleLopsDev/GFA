@@ -7,6 +7,8 @@ class RuleEvaluator(private val rules: List<Rule>) {
 
     fun evaluate(email: EmailData): Rule? {
         for (rule in rules) {
+            if (!rule.isActive) continue
+            
             val matchesMittente = rule.patternMittente?.let {
                 Regex(it, RegexOption.IGNORE_CASE).containsMatchIn(email.da)
             } ?: true

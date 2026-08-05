@@ -112,6 +112,76 @@ class GmailTriageService(
         }
     }
 
+    suspend fun simulateGems(): List<EmailData> = withContext(Dispatchers.IO) {
+        if (!rulesFile.exists()) {
+            throw IllegalStateException("File rules.json non trovato. L'LLM deve prima generarlo in ${rulesFile.absolutePath}")
+        }
+
+        val jsonParser = Json { ignoreUnknownKeys = true }
+        val rulesText = rulesFile.readText()
+        val ruleConfig = jsonParser.decodeFromString<RuleConfig>(rulesText)
+        val evaluator = RuleEvaluator(ruleConfig.rules)
+
+        val jsonFiles = outputDir.listFiles { _, name -> name.startsWith("emails_part_") && name.endsWith(".json") }
+            ?: return@withContext emptyList()
+
+        val gemEmails = mutableListOf<EmailData>()
+
+        for (file in jsonFiles) {
+            val emailsText = file.readText()
+            val emails = jsonParser.decodeFromString<List<EmailData>>(emailsText)
+
+            for (email in emails) {
+                if (emailDao.isEmailTriaged(email.id)) continue
+
+                val matchingRule = evaluator.evaluate(email)
+                if (matchingRule?.action != TriageAction.TRASH && email.haAllegati) {
+                    gemEmails.add(email)
+                }
+            }
+        }
+        
+        return@withContext gemEmails
+    }
+
+    suspend fun executeDownloadGems(emailsToDownload: List<EmailData>, onProgress: ((Int, Int) -> Unit)? = null) = withContext(Dispatchers.IO) {
+        val total = emailsToDownload.size
+        var current = 0
+        for (email in emailsToDownload) {
+            downloadAttachments(email)
+            emailDao.insertTriagedEmail(TriagedEmailEntity(email.id, System.currentTimeMillis(), "DOWNLOADED"))
+            current++
+            onProgress?.invoke(current, total)
+        }
+    }
+
+    private suspend fun downloadAttachments(email: EmailData) {
+        if (!email.haAllegati) return
+
+        val message = executeWithBackoff {
+            gmailService.users().messages().get(user, email.id).execute()
+        }
+        
+        message?.payload?.parts?.forEach { part ->
+            if (!part.filename.isNullOrEmpty() && part.body?.attachmentId != null) {
+                val attachment = executeWithBackoff {
+                    gmailService.users().messages().attachments().get(user, email.id, part.body.attachmentId).execute()
+                }
+                if (attachment != null) {
+                    val fileData = attachment.decodeData()
+                    
+                    // Pulizia del nome mittente per creare una cartella valida
+                    val safeSenderName = email.da.replace(Regex("[^a-zA-Z0-9.-]"), "_").take(50)
+                    val senderDir = File(attachmentsDir, safeSenderName)
+                    if (!senderDir.exists()) senderDir.mkdirs()
+                    
+                    val destFile = File(senderDir, "${email.id}_${part.filename}")
+                    destFile.writeBytes(fileData)
+                }
+            }
+        }
+    }
+
     private suspend fun trashEmail(emailId: String) {
         executeWithBackoff {
             gmailService.users().messages().trash(user, emailId).execute()

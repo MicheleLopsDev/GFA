@@ -63,4 +63,45 @@ class ExcelExporterService {
         println("Export completato! File salvato in: ${exportFile.absolutePath}")
         return@withContext exportFile.absolutePath
     }
+
+    suspend fun exportSpecificEmailsToExcel(emails: List<EmailData>, fileName: String = "Email_Importanti_Salvate.xlsx"): String? = withContext(Dispatchers.IO) {
+        if (emails.isEmpty()) return@withContext null
+        
+        val customExportFile = File(System.getProperty("user.dir"), fileName)
+        
+        XSSFWorkbook().use { workbook ->
+            val sheet = workbook.createSheet("Email Importanti")
+            
+            // Header
+            val headerRow = sheet.createRow(0)
+            headerRow.createCell(0).setCellValue("ID")
+            headerRow.createCell(1).setCellValue("Mittente")
+            headerRow.createCell(2).setCellValue("Destinatario")
+            headerRow.createCell(3).setCellValue("Data")
+            headerRow.createCell(4).setCellValue("Oggetto")
+            headerRow.createCell(5).setCellValue("Snippet")
+            headerRow.createCell(6).setCellValue("Ha Allegati")
+            headerRow.createCell(7).setCellValue("Nomi Allegati")
+
+            var rowNum = 1
+            for (email in emails) {
+                val row = sheet.createRow(rowNum++)
+                row.createCell(0).setCellValue(email.id)
+                row.createCell(1).setCellValue(email.da)
+                row.createCell(2).setCellValue(email.a)
+                row.createCell(3).setCellValue(email.data)
+                row.createCell(4).setCellValue(email.titolo)
+                row.createCell(5).setCellValue(email.testo)
+                row.createCell(6).setCellValue(if (email.haAllegati) "SI" else "NO")
+                row.createCell(7).setCellValue(email.nomiAllegati.joinToString(", "))
+            }
+
+            FileOutputStream(customExportFile).use { out ->
+                workbook.write(out)
+            }
+        }
+        
+        println("Export personalizzato completato! File salvato in: ${customExportFile.absolutePath}")
+        return@withContext customExportFile.absolutePath
+    }
 }

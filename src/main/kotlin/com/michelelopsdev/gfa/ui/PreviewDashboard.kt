@@ -59,9 +59,13 @@ fun PreviewDashboard(
     onPageSizeChanged: (Int) -> Unit,
     onConfirm: () -> Unit,
     onCancel: () -> Unit,
-    isDarkTheme: Boolean,
-    isExecuting: Boolean,
-    progressMsg: String,
+    isDarkTheme: Boolean = true,
+    isExecuting: Boolean = false,
+    progressMsg: String = "",
+    confirmButtonText: String = "Conferma Pulizia Selezionate",
+    executingText: String = "Elaborazione...",
+    onSecondaryAction: (() -> Unit)? = null,
+    secondaryButtonText: String = "Azione Secondaria",
     coroutineScope: CoroutineScope
 ) {
     var filterTitolo by remember { mutableStateOf("") }
@@ -113,6 +117,8 @@ fun PreviewDashboard(
     val pagedEmails = sortedEmails.drop(safeCurrentPage * pageSize).take(pageSize)
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        AiRequestBanner()
+        
         // Header
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -170,10 +176,21 @@ fun PreviewDashboard(
                 Button(
                     onClick = onConfirm,
                     enabled = !isExecuting && selectedEmails.isNotEmpty(),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE91E63))
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)) // Verde di base
                 ) {
-                    Text(if (isExecuting) "Eliminazione..." else "Conferma Pulizia Selezionate (${selectedEmails.size})", color = Color.White)
+                    Text(if (isExecuting) executingText else "$confirmButtonText (${selectedEmails.size})", color = Color.White)
                 }
+                
+                if (onSecondaryAction != null) {
+                    Button(
+                        onClick = onSecondaryAction,
+                        enabled = !isExecuting && selectedEmails.isNotEmpty(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE91E63)) // Rosso
+                    ) {
+                        Text("$secondaryButtonText (${selectedEmails.size})", color = Color.White)
+                    }
+                }
+                
                 Button(
                     onClick = onCancel,
                     enabled = !isExecuting,
@@ -317,9 +334,9 @@ fun PreviewDashboard(
                     HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
                 }
             }
-            androidx.compose.foundation.VerticalScrollbar(
-                modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
-                adapter = androidx.compose.foundation.rememberScrollbarAdapter(scrollState = listState)
+            VerticalScrollbarWithArrows(
+                listState = listState,
+                modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(vertical = 4.dp, horizontal = 2.dp)
             )
         }
     }
