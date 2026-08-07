@@ -28,15 +28,18 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
+import java.awt.Dimension
+import com.michelelopsdev.gfa.utils.AppLogger
 
-const val APP_VERSION = "1.0.1"
+const val APP_VERSION = "1.0.4"
 
 enum class Screen { EXTRACTION, CLEANUP, BACKUP, EDITOR, HELP }
 
 @Composable
-fun TabButton(text: String, isSelected: Boolean, onClick: () -> Unit) {
+fun TabButton(text: String, isSelected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
     Button(
         onClick = onClick,
+        enabled = enabled,
         colors = ButtonDefaults.buttonColors(
             containerColor = if (isSelected) Color(0xFF00E5FF) else MaterialTheme.colorScheme.surfaceVariant,
             contentColor = if (isSelected) Color.Black else MaterialTheme.colorScheme.onBackground
@@ -70,6 +73,7 @@ fun App() {
     
     // Globale: Account Utente
     var userEmail by remember { mutableStateOf("Caricamento...") }
+    var isGlobalOperationRunning by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         coroutineScope.launch(Dispatchers.IO) {
@@ -128,12 +132,12 @@ fun App() {
     LaunchedEffect(fetcherService) {
         fetcherService?.stats?.collect { stats ->
             totalProcessed = stats.totalProcessed
+            totalInbox = maxOf(stats.totalInboxMessages, stats.totalProcessed)
             currentSpeed = stats.speedPerSecond
-            totalInbox = stats.totalInboxMessages
             currentSubject = stats.currentEmailSubject
             currentDate = stats.lastEmailDate
             lastSessionDate = stats.lastSessionDate
-            progressPercent = stats.progressPercent
+            progressPercent = if (totalInbox > 0) totalProcessed.toFloat() / totalInbox else 0f
             
             if (speedHistory.size > 50) speedHistory.removeAt(0)
             speedHistory.add(currentSpeed)
@@ -184,6 +188,20 @@ fun App() {
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text("Account: $userEmail", color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold)
+                            Button(onClick = {
+                                try {
+                                    val logFile = java.io.File(System.getProperty("user.home"), ".gfa/gfa.log")
+                                    if (logFile.exists()) {
+                                        java.awt.Desktop.getDesktop().open(logFile)
+                                    } else {
+                                        statusMessage = "File di log non ancora creato."
+                                    }
+                                } catch (e: Exception) {
+                                    statusMessage = "Errore nell'apertura del log: ${e.message}"
+                                }
+                            }) {
+                                Text("Apri Log")
+                            }
                             Button(onClick = { isDarkTheme = !isDarkTheme }) {
                                 Text(if (isDarkTheme) "☀️ Chiaro" else "🌙 Scuro")
                             }
@@ -198,11 +216,12 @@ fun App() {
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        TabButton("1. Mission Control", currentScreen == Screen.EXTRACTION) { currentScreen = Screen.EXTRACTION }
-                        TabButton("2. Pulizia (Trash)", currentScreen == Screen.CLEANUP) { currentScreen = Screen.CLEANUP }
-                        TabButton("3. Editor Regole", currentScreen == Screen.EDITOR) { currentScreen = Screen.EDITOR }
-                        TabButton("4. Backup (Allegati)", currentScreen == Screen.BACKUP) { currentScreen = Screen.BACKUP }
-                        TabButton("5. Guida / Help", currentScreen == Screen.HELP) { currentScreen = Screen.HELP }
+                        val tabsEnabled = !isExtracting && !isGlobalOperationRunning
+                        TabButton("1. Mission Control", currentScreen == Screen.EXTRACTION, enabled = tabsEnabled) { currentScreen = Screen.EXTRACTION }
+                        TabButton("2. Pulizia (Trash)", currentScreen == Screen.CLEANUP, enabled = tabsEnabled) { currentScreen = Screen.CLEANUP }
+                        TabButton("3. Editor Regole", currentScreen == Screen.EDITOR, enabled = tabsEnabled) { currentScreen = Screen.EDITOR }
+                        TabButton("4. Backup (Allegati)", currentScreen == Screen.BACKUP, enabled = tabsEnabled) { currentScreen = Screen.BACKUP }
+                        TabButton("5. Guida / Help", currentScreen == Screen.HELP, enabled = tabsEnabled) { currentScreen = Screen.HELP }
                     }
                     
                     Spacer(modifier = Modifier.height(16.dp))
@@ -244,13 +263,19 @@ fun App() {
                     )
                     Screen.CLEANUP -> CleanupScreen(
                         isDarkTheme = isDarkTheme,
+                        colors = colors,
                         onSetStatusMessage = { statusMessage = it },
-                        coroutineScope = coroutineScope
+                        coroutineScope = coroutineScope,
+                        onOperationStart = { isGlobalOperationRunning = true },
+                        onOperationEnd = { isGlobalOperationRunning = false }
                     )
                     Screen.BACKUP -> BackupScreen(
                         isDarkTheme = isDarkTheme,
+                        colors = colors,
                         onSetStatusMessage = { statusMessage = it },
-                        coroutineScope = coroutineScope
+                        coroutineScope = coroutineScope,
+                        onOperationStart = { isGlobalOperationRunning = true },
+                        onOperationEnd = { isGlobalOperationRunning = false }
                     )
                     Screen.EDITOR -> com.michelelopsdev.gfa.ui.RulesEditorScreen(
                         isDarkTheme = isDarkTheme,
@@ -383,7 +408,7 @@ fun ExtractionScreen(
                             dao.clearProcessedEmails()
                             dao.clearTriagedEmails()
                             
-                            val exportFile = java.io.File(System.getProperty("user.dir"), "GFA_Export_Email.xlsx")
+                            val exportFile = java.io.File(System.getProperty("user.home") + "/Desktop", "GFA_Export_Email.xlsx")
                             if (exportFile.exists()) exportFile.delete()
                             
                             onClearData()
@@ -444,18 +469,18 @@ fun ExtractionScreen(
             ) {
                 val displayPercent = (progressPercent * 100).roundToInt()
                 LinearProgressIndicator(
-                    progress = { 1.0f - progressPercent },
+                    progress = { progressPercent },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(16.dp)
                         .clip(RoundedCornerShape(8.dp)),
-                    color = Color(0xFFE91E63),
+                    color = Color(0xFF00E5FF),
                     trackColor = Color.DarkGray
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 
                 Text(
-                    "Da scaricare: ${100 - displayPercent}%", 
+                    "Completato: $displayPercent%", 
                     color = MaterialTheme.colorScheme.onSurface, 
                     fontWeight = FontWeight.Bold
                 )
@@ -504,8 +529,11 @@ fun ExtractionScreen(
 @Composable
 fun CleanupScreen(
     isDarkTheme: Boolean,
+    colors: androidx.compose.material3.ColorScheme,
     onSetStatusMessage: (String) -> Unit,
-    coroutineScope: kotlinx.coroutines.CoroutineScope
+    coroutineScope: kotlinx.coroutines.CoroutineScope,
+    onOperationStart: () -> Unit = {},
+    onOperationEnd: () -> Unit = {}
 ) {
     var requestLog by remember { mutableStateOf("") }
     var responseLog by remember { mutableStateOf("") }
@@ -545,12 +573,21 @@ fun CleanupScreen(
     var pageSize by remember { mutableStateOf(50) }
     var isExecutingTrash by remember { mutableStateOf(false) }
     var trashProgressMsg by remember { mutableStateOf("") }
+    var isRestoringTrash by remember { mutableStateOf(false) }
+    var restoreProgressMsg by remember { mutableStateOf("") }
 
     if (showPreviewDashboard && previewEmails != null) {
-        com.michelelopsdev.gfa.ui.PreviewDashboard(
-            emails = previewEmails!!,
-            selectedEmails = selectedEmails,
-            onSelectionChanged = { selectedEmails = it },
+        androidx.compose.ui.window.Window(
+            onCloseRequest = { showPreviewDashboard = false },
+            title = "Anteprima Pulizia (Trash)",
+            state = androidx.compose.ui.window.rememberWindowState(width = 1200.dp, height = 800.dp)
+        ) {
+            MaterialTheme(colorScheme = colors) {
+                Surface(modifier = Modifier.fillMaxSize()) {
+                    com.michelelopsdev.gfa.ui.PreviewDashboard(
+                        emails = previewEmails!!,
+                        selectedEmails = selectedEmails,
+                        onSelectionChanged = { selectedEmails = it },
             sortColumn = sortColumn,
             onSortChanged = { col ->
                 if (sortColumn == col) sortAscending = !sortAscending
@@ -563,6 +600,7 @@ fun CleanupScreen(
             onPageSizeChanged = { pageSize = it; currentPage = 0 },
             onConfirm = {
                 isExecutingTrash = true
+                onOperationStart()
                 coroutineScope.launch {
                     try {
                         withContext(Dispatchers.IO) {
@@ -571,17 +609,23 @@ fun CleanupScreen(
                             val gmailService = authManager.getGmailService()
                             val triageService = com.michelelopsdev.gfa.domain.GmailTriageService(gmailService, database.emailDao())
                             
-                            triageService.executeTrash(selectedEmails.toList()) { current, total ->
+                            val emailsToTrash = previewEmails!!.filter { selectedEmails.contains(it.id) }
+                            
+                            // Esportiamo in Excel le email che stiamo per cestinare
+                            com.michelelopsdev.gfa.domain.ExcelExporterService().exportSpecificEmailsToExcel(emailsToTrash, "Email_Cancellate.xlsx")
+                            
+                            triageService.executeTrash(emailsToTrash.map { it.id }) { current, total ->
                                 trashProgressMsg = "$current / $total rimosse"
                             }
                         }
-                        onSetStatusMessage("Pulizia completata con successo! ${selectedEmails.size} rimosse.")
+                        onSetStatusMessage("Pulizia completata! Excel 'Email_Cancellate.xlsx' generato. ${selectedEmails.size} rimosse.")
                         previewEmails = null
                         selectedEmails = emptySet()
                     } catch (e: Exception) {
                         onSetStatusMessage("Errore Pulizia: ${e.message}")
                     } finally {
                         isExecutingTrash = false
+                        onOperationEnd()
                     }
                 }
             },
@@ -594,7 +638,10 @@ fun CleanupScreen(
             progressMsg = trashProgressMsg,
             coroutineScope = coroutineScope
         )
-        return // Esce e renderizza solo l'anteprima
+                }
+            }
+        }
+        return
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
@@ -640,6 +687,7 @@ fun CleanupScreen(
                     selectedEmails = emptySet()
                     showPreviewDashboard = false
                     
+                    onOperationStart()
                     coroutineScope.launch {
                         try {
                             com.michelelopsdev.gfa.domain.GeminiAnalyzerService().generateRules(
@@ -707,6 +755,33 @@ fun CleanupScreen(
             ) {
                 Text("Cancella Regole Precedenti", color = Color.White)
             }
+            Button(
+                onClick = {
+                    onSetStatusMessage("Ricalcolo anteprima in corso (senza IA)...")
+                    coroutineScope.launch {
+                        try {
+                            val emailsToTrash = withContext(Dispatchers.IO) {
+                                val database = DatabaseFactory.createDatabase()
+                                val authManager = GmailAuthManager()
+                                val gmailService = authManager.getGmailService()
+                                val triageService = com.michelelopsdev.gfa.domain.GmailTriageService(gmailService, database.emailDao())
+                                triageService.simulateTriage()
+                            }
+                            previewEmails = emailsToTrash
+                            selectedEmails = emailsToTrash.map { it.id }.toSet()
+                            currentPage = 0
+                            onSetStatusMessage("Anteprima aggiornata: ${emailsToTrash.size} email individuate.")
+                            showPreviewDashboard = true
+                        } catch (e: Exception) {
+                            onSetStatusMessage("Errore anteprima: ${e.message}")
+                        }
+                    }
+                },
+                enabled = !isGenerating && !isRestoringTrash && java.io.File(System.getProperty("user.home"), ".gfa/rules.json").exists(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3))
+            ) {
+                Text("Aggiorna Lista (Senza IA)", color = Color.White)
+            }
             
             Button(
                 onClick = {
@@ -734,14 +809,74 @@ fun CleanupScreen(
                         }
                     }
                 },
+                enabled = !isGenerating && !isRestoringTrash,
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE91E63))
             ) {
                 Text("Avvia Pulizia (Trash)", color = Color.White)
             }
 
-            if (isGenerating) {
+            Button(
+                onClick = {
+                    onSetStatusMessage("Ricalcolo anteprima in corso (senza IA)...")
+                    coroutineScope.launch {
+                        try {
+                            val emailsToTrash = withContext(Dispatchers.IO) {
+                                val database = DatabaseFactory.createDatabase()
+                                val authManager = GmailAuthManager()
+                                val gmailService = authManager.getGmailService()
+                                val triageService = com.michelelopsdev.gfa.domain.GmailTriageService(gmailService, database.emailDao())
+                                triageService.simulateTriage()
+                            }
+                            previewEmails = emailsToTrash
+                            selectedEmails = emailsToTrash.map { it.id }.toSet()
+                            currentPage = 0
+                            onSetStatusMessage("Anteprima aggiornata: ${emailsToTrash.size} email individuate.")
+                            showPreviewDashboard = true
+                        } catch (e: Exception) {
+                            onSetStatusMessage("Errore anteprima: ${e.message}")
+                        }
+                    }
+                },
+                enabled = !isGenerating && !isRestoringTrash && java.io.File(System.getProperty("user.home"), ".gfa/rules.json").exists(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3))
+            ) {
+                Text("Aggiorna Lista (Applica Regole)", color = Color.White)
+            }
+            
+            Button(
+                onClick = {
+                    isRestoringTrash = true
+                    onOperationStart()
+                    coroutineScope.launch {
+                        try {
+                            withContext(Dispatchers.IO) {
+                                val database = DatabaseFactory.createDatabase()
+                                val authManager = GmailAuthManager()
+                                val gmailService = authManager.getGmailService()
+                                val triageService = com.michelelopsdev.gfa.domain.GmailTriageService(gmailService, database.emailDao())
+                                
+                                triageService.executeRestoreTrash { current, total ->
+                                    restoreProgressMsg = "$current / $total ripristinate"
+                                }
+                            }
+                            onSetStatusMessage("Fatto! Tutte le email precedentemente cestinate sono state ripristinate.")
+                        } catch (e: Exception) {
+                            onSetStatusMessage("Errore Ripristino: ${e.message}")
+                        } finally {
+                            isRestoringTrash = false
+                            onOperationEnd()
+                        }
+                    }
+                },
+                enabled = !isGenerating && !isRestoringTrash,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))
+            ) {
+                Text("Ripristina Email Cestinate", color = Color.White)
+            }
+
+            if (isGenerating || isRestoringTrash) {
                 CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color(0xFF00E5FF))
-                Text(currentProgressMsg, color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold)
+                Text(if (isRestoringTrash) restoreProgressMsg else currentProgressMsg, color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold)
             }
         }
         
@@ -818,8 +953,11 @@ fun CleanupScreen(
 @Composable
 fun BackupScreen(
     isDarkTheme: Boolean,
+    colors: androidx.compose.material3.ColorScheme,
     onSetStatusMessage: (String) -> Unit,
-    coroutineScope: kotlinx.coroutines.CoroutineScope
+    coroutineScope: kotlinx.coroutines.CoroutineScope,
+    onOperationStart: () -> Unit = {},
+    onOperationEnd: () -> Unit = {}
 ) {
     var previewEmails by remember { mutableStateOf<List<com.michelelopsdev.gfa.data.model.EmailData>?>(null) }
     var showPreviewDashboard by remember { mutableStateOf(false) }
@@ -830,12 +968,20 @@ fun BackupScreen(
     var pageSize by remember { mutableStateOf(50) }
     var isExecutingDownload by remember { mutableStateOf(false) }
     var downloadProgressMsg by remember { mutableStateOf("") }
+    var downloadedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
 
     if (showPreviewDashboard && previewEmails != null) {
-        com.michelelopsdev.gfa.ui.PreviewDashboard(
-            emails = previewEmails!!,
-            selectedEmails = selectedEmails,
-            onSelectionChanged = { selectedEmails = it },
+        androidx.compose.ui.window.Window(
+            onCloseRequest = { showPreviewDashboard = false },
+            title = "Anteprima Backup (Allegati)",
+            state = androidx.compose.ui.window.rememberWindowState(width = 1200.dp, height = 800.dp)
+        ) {
+            MaterialTheme(colorScheme = colors) {
+                Surface(modifier = Modifier.fillMaxSize()) {
+                    com.michelelopsdev.gfa.ui.PreviewDashboard(
+                        emails = previewEmails!!,
+                        selectedEmails = selectedEmails,
+                        onSelectionChanged = { selectedEmails = it },
             sortColumn = sortColumn,
             onSortChanged = { col ->
                 if (sortColumn == col) sortAscending = !sortAscending
@@ -846,8 +992,12 @@ fun BackupScreen(
             onPageChanged = { currentPage = it },
             pageSize = pageSize,
             onPageSizeChanged = { pageSize = it; currentPage = 0 },
+            selectionColor = Color(0x334CAF50), // Verde chiaro per Backup
+            highlightedEmails = downloadedIds,
+            headerExtraText = "- (di cui ${downloadedIds.intersect(previewEmails!!.map { it.id }.toSet()).size} già salvate)",
             onConfirm = {
                 isExecutingDownload = true
+                onOperationStart()
                 coroutineScope.launch {
                     try {
                         withContext(Dispatchers.IO) {
@@ -874,6 +1024,7 @@ fun BackupScreen(
                         onSetStatusMessage("Errore Download: ${e.message}")
                     } finally {
                         isExecutingDownload = false
+                        onOperationEnd()
                     }
                 }
             },
@@ -917,6 +1068,9 @@ fun BackupScreen(
             secondaryButtonText = "Sposta nel Cestino (Trash)",
             coroutineScope = coroutineScope
         )
+                }
+            }
+        }
         return
     }
 
@@ -933,14 +1087,20 @@ fun BackupScreen(
             onSetStatusMessage("Ricerca email importanti con allegati in corso...")
             coroutineScope.launch {
                 try {
-                    val emailsToDownload = withContext(Dispatchers.IO) {
+                    val pairResult = withContext(Dispatchers.IO) {
                         val database = DatabaseFactory.createDatabase()
                         val authManager = GmailAuthManager()
                         val gmailService = authManager.getGmailService()
                         val triageService = com.michelelopsdev.gfa.domain.GmailTriageService(gmailService, database.emailDao())
-                        triageService.simulateGems()
+                        val emails = triageService.simulateGems()
+                        val saved = database.emailDao().getTriagedEmailsByAction("DOWNLOADED").toSet()
+                        Pair(emails, saved)
                     }
+                    val emailsToDownload = pairResult.first
+                    val savedIds = pairResult.second
+                    
                     previewEmails = emailsToDownload
+                    downloadedIds = savedIds
                     selectedEmails = emailsToDownload.map { it.id }.toSet()
                     currentPage = 0
                     onSetStatusMessage("Trovate ${emailsToDownload.size} email importanti con allegati.")
@@ -956,7 +1116,7 @@ fun BackupScreen(
 }
 
 fun main() = application {
-    println("=== AVVIO GFA Versione: $APP_VERSION ===")
+    AppLogger.info("=== AVVIO GFA Versione: $APP_VERSION ===")
     val windowState = androidx.compose.ui.window.rememberWindowState(
         width = 1200.dp,
         height = 800.dp

@@ -48,7 +48,17 @@ compose.desktop {
                 org.jetbrains.compose.desktop.application.dsl.TargetFormat.Deb
             )
             packageName = "GFA"
-            packageVersion = "1.0.0"
+            packageVersion = "1.0.4"
+            vendor = "MicheleLopsDev"
+            
+            modules("jdk.httpserver", "jdk.crypto.ec", "java.naming", "java.sql", "java.net.http")
+            
+            windows {
+                menu = true
+                shortcut = true
+                menuGroup = "MicheleLopsDev"
+                dirChooser = true
+            }
         }
     }
 }

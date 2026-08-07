@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import kotlin.math.pow
+import com.michelelopsdev.gfa.utils.AppLogger
 
 data class FetcherStats(
     val totalProcessed: Int, 
@@ -50,20 +51,20 @@ class GmailFetcherService(
     suspend fun extractData() {
         var nextPageToken: String? = null
         
-        println("Recupero numero totale di email nell'account...")
+        AppLogger.info("Recupero numero totale di email nell'account...")
         var totalInboxMessages = 0
         try {
             val profile = executeWithBackoff { gmailService.users().getProfile("me").execute() }
             if (profile != null) {
                 totalInboxMessages = profile.messagesTotal ?: 0
-                println("Email totali nella casella: $totalInboxMessages")
+                AppLogger.info("Email totali nella casella: $totalInboxMessages")
             }
         } catch (e: Exception) {
-            println("Impossibile recuperare il totale delle email: ${e.message}")
+            AppLogger.error("Impossibile recuperare il totale delle email: ${e.message}", e)
         }
 
         var totalProcessed = emailDao.getProcessedCount()
-        println("Email già processate nel DB: $totalProcessed")
+        AppLogger.info("Email già processate nel DB: $totalProcessed")
 
         var currentBatch = mutableListOf<EmailData>()
         var partNumber = 1
@@ -90,7 +91,7 @@ class GmailFetcherService(
                         }
                     }
                 } catch (e: Exception) {
-                    println("Impossibile leggere l'ultima data: ${e.message}")
+                    AppLogger.error("Impossibile leggere l'ultima data: ${e.message}", e)
                 }
             }
         }
@@ -104,11 +105,12 @@ class GmailFetcherService(
             progressPercent = if (totalInboxMessages > 0) totalProcessed.toFloat() / totalInboxMessages else 0f
         )
         
-        println("Avvio connessione a Gmail e inizio scansione messaggi...")
+        AppLogger.info("Avvio connessione a Gmail e inizio scansione messaggi...")
 
         val user = "me"
         var lastTimeMillis = System.currentTimeMillis()
         var lastProcessedCount = 0
+        var consecutiveProcessed = 0
 
         do {
             while (_isPaused.value && isRunning) {
@@ -166,7 +168,7 @@ class GmailFetcherService(
                         }
 
                         if (totalProcessed % 50 == 0) {
-                            println("Sto elaborando... scaricati $totalProcessed messaggi finora.")
+                            AppLogger.info("Sto elaborando... scaricati $totalProcessed messaggi finora.")
                         }
 
                         if (currentBatch.size >= batchSize) {
@@ -175,8 +177,17 @@ class GmailFetcherService(
                             currentBatch.clear()
                         }
                     }
+                    consecutiveProcessed = 0 // Resetta il contatore se troviamo una nuova email
+                } else {
+                    consecutiveProcessed++
                 }
             }
+            
+            if (consecutiveProcessed >= 50) {
+                AppLogger.info("Raggiunte $consecutiveProcessed email già elaborate consecutivamente. Sincronizzazione incrementale completata!")
+                break
+            }
+            
             nextPageToken = response?.nextPageToken
         } while (nextPageToken != null && isRunning)
 
@@ -185,7 +196,18 @@ class GmailFetcherService(
             saveBatch(currentBatch, partNumber)
         }
         
-        println("Estrazione completata. Email processate in totale in questa sessione: $totalProcessed")
+        // Emette l'ultimo stato per aggiornare la UI con i totali corretti
+        _stats.value = FetcherStats(
+            totalProcessed = totalProcessed,
+            speedPerSecond = 0,
+            totalInboxMessages = if (totalInboxMessages < totalProcessed) totalProcessed else totalInboxMessages,
+            currentEmailSubject = "Completato",
+            lastEmailDate = "",
+            lastSessionDate = lastSessionDateStr,
+            progressPercent = 1f
+        )
+        
+        AppLogger.info("Estrazione completata. Email processate in totale in questa sessione: $totalProcessed")
     }
 
     private fun parseMessage(message: Message): EmailData {

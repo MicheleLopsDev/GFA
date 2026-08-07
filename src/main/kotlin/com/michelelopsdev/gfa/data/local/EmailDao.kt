@@ -22,6 +22,15 @@ interface EmailDao {
     @Query("SELECT EXISTS(SELECT 1 FROM triaged_emails WHERE emailId = :emailId LIMIT 1)")
     suspend fun isEmailTriaged(emailId: String): Boolean
 
+    @Query("SELECT emailId FROM triaged_emails")
+    suspend fun getAllTriagedEmailIds(): List<String>
+
+    @Query("SELECT emailId FROM triaged_emails WHERE actionTaken = :action")
+    suspend fun getTriagedEmailsByAction(action: String): List<String>
+
+    @Query("DELETE FROM triaged_emails WHERE emailId = :emailId")
+    suspend fun deleteTriagedEmail(emailId: String)
+
     @Query("DELETE FROM processed_emails")
     suspend fun clearProcessedEmails()
 

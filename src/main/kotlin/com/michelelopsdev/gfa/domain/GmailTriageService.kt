@@ -15,6 +15,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import java.io.File
 import kotlin.math.pow
+import com.michelelopsdev.gfa.utils.AppLogger
 
 class GmailTriageService(
     private val gmailService: Gmail,
@@ -54,7 +55,13 @@ class GmailTriageService(
                 val matchingRule = evaluator.evaluate(email)
                 if (matchingRule != null) {
                     when (matchingRule.action) {
-                        TriageAction.TRASH -> trashEmail(email.id)
+                        TriageAction.TRASH -> {
+                            if (!containsCodiceFiscale(email.testo) && !containsCodiceFiscale(email.titolo)) {
+                                trashEmail(email.id)
+                            } else {
+                                AppLogger.info("Email ${email.id} non cestinata (contiene Codice Fiscale)")
+                            }
+                        }
                         TriageAction.KEEP_AND_LABEL -> labelAndDownload(email, matchingRule.labelName ?: "GFA_Default")
                         TriageAction.IGNORE -> { /* Do nothing */ }
                     }
@@ -63,10 +70,10 @@ class GmailTriageService(
                 emailDao.insertTriagedEmail(TriagedEmailEntity(email.id, System.currentTimeMillis(), matchingRule?.action?.name ?: "UNMATCHED"))
                 totalTriaged++
             }
-            println("File ${file.name} processato.")
+            AppLogger.info("File ${file.name} processato.")
         }
         
-        println("Triage completato. Email esaminate: $totalTriaged")
+        AppLogger.info("Triage completato. Email esaminate: $totalTriaged")
     }
 
     suspend fun simulateTriage(): List<EmailData> = withContext(Dispatchers.IO) {
@@ -93,7 +100,9 @@ class GmailTriageService(
 
                 val matchingRule = evaluator.evaluate(email)
                 if (matchingRule?.action == TriageAction.TRASH) {
-                    trashEmails.add(email)
+                    if (!containsCodiceFiscale(email.testo) && !containsCodiceFiscale(email.titolo)) {
+                        trashEmails.add(email)
+                    }
                 }
             }
         }
@@ -112,6 +121,18 @@ class GmailTriageService(
         }
     }
 
+    suspend fun executeRestoreTrash(onProgress: ((Int, Int) -> Unit)? = null) = withContext(Dispatchers.IO) {
+        val trashedEmails = emailDao.getTriagedEmailsByAction(TriageAction.TRASH.name)
+        val total = trashedEmails.size
+        var current = 0
+        for (emailId in trashedEmails) {
+            untrashEmail(emailId)
+            emailDao.deleteTriagedEmail(emailId)
+            current++
+            onProgress?.invoke(current, total)
+        }
+    }
+
     suspend fun simulateGems(): List<EmailData> = withContext(Dispatchers.IO) {
         if (!rulesFile.exists()) {
             throw IllegalStateException("File rules.json non trovato. L'LLM deve prima generarlo in ${rulesFile.absolutePath}")
@@ -121,6 +142,9 @@ class GmailTriageService(
         val rulesText = rulesFile.readText()
         val ruleConfig = jsonParser.decodeFromString<RuleConfig>(rulesText)
         val evaluator = RuleEvaluator(ruleConfig.rules)
+
+        // Non escludiamo le email già scaricate, ma escludiamo solo quelle cestinate
+        val trashedIds = emailDao.getTriagedEmailsByAction(TriageAction.TRASH.name).toSet()
 
         val jsonFiles = outputDir.listFiles { _, name -> name.startsWith("emails_part_") && name.endsWith(".json") }
             ?: return@withContext emptyList()
@@ -132,7 +156,7 @@ class GmailTriageService(
             val emails = jsonParser.decodeFromString<List<EmailData>>(emailsText)
 
             for (email in emails) {
-                if (emailDao.isEmailTriaged(email.id)) continue
+                if (trashedIds.contains(email.id)) continue
 
                 val matchingRule = evaluator.evaluate(email)
                 if (matchingRule?.action != TriageAction.TRASH && email.haAllegati) {
@@ -158,47 +182,7 @@ class GmailTriageService(
     private suspend fun downloadAttachments(email: EmailData) {
         if (!email.haAllegati) return
 
-        val message = executeWithBackoff {
-            gmailService.users().messages().get(user, email.id).execute()
-        }
-        
-        message?.payload?.parts?.forEach { part ->
-            if (!part.filename.isNullOrEmpty() && part.body?.attachmentId != null) {
-                val attachment = executeWithBackoff {
-                    gmailService.users().messages().attachments().get(user, email.id, part.body.attachmentId).execute()
-                }
-                if (attachment != null) {
-                    val fileData = attachment.decodeData()
-                    
-                    // Pulizia del nome mittente per creare una cartella valida
-                    val safeSenderName = email.da.replace(Regex("[^a-zA-Z0-9.-]"), "_").take(50)
-                    val senderDir = File(attachmentsDir, safeSenderName)
-                    if (!senderDir.exists()) senderDir.mkdirs()
-                    
-                    val destFile = File(senderDir, "${email.id}_${part.filename}")
-                    destFile.writeBytes(fileData)
-                }
-            }
-        }
-    }
-
-    private suspend fun trashEmail(emailId: String) {
-        executeWithBackoff {
-            gmailService.users().messages().trash(user, emailId).execute()
-        }
-    }
-
-    private suspend fun labelAndDownload(email: EmailData, labelName: String) {
-        val labelId = getOrCreateLabel(labelName)
-        
-        // Applica etichetta
-        val modifyRequest = ModifyMessageRequest().setAddLabelIds(listOf(labelId))
-        executeWithBackoff {
-            gmailService.users().messages().modify(user, email.id, modifyRequest).execute()
-        }
-
-        // Scarica allegati
-        if (email.haAllegati) {
+        try {
             val message = executeWithBackoff {
                 gmailService.users().messages().get(user, email.id).execute()
             }
@@ -210,14 +194,81 @@ class GmailTriageService(
                     }
                     if (attachment != null) {
                         val fileData = attachment.decodeData()
-                        val categoryDir = File(attachmentsDir, labelName)
-                        if (!categoryDir.exists()) categoryDir.mkdirs()
                         
-                        val destFile = File(categoryDir, "${email.id}_${part.filename}")
+                        // Pulizia del nome mittente e nome file per creare una cartella/file valida
+                        val safeSenderName = email.da.replace(Regex("[^a-zA-Z0-9.-]"), "_").take(50)
+                        val safeFilename = part.filename.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+                        
+                        val senderDir = File(attachmentsDir, safeSenderName)
+                        if (!senderDir.exists()) senderDir.mkdirs()
+                        
+                        val destFile = File(senderDir, "${email.id}_$safeFilename")
                         destFile.writeBytes(fileData)
+                        
+                        com.michelelopsdev.gfa.utils.AppLogger.info("Allegato scaricato con successo: $safeFilename in ${senderDir.name}")
                     }
                 }
             }
+        } catch (e: Exception) {
+            com.michelelopsdev.gfa.utils.AppLogger.error("Errore durante lo scaricamento degli allegati per email ${email.id}", e)
+            throw e
+        }
+    }
+
+    private suspend fun trashEmail(emailId: String) {
+        executeWithBackoff {
+            gmailService.users().messages().trash(user, emailId).execute()
+        }
+    }
+
+    private suspend fun untrashEmail(emailId: String) {
+        executeWithBackoff {
+            // Untrash it first
+            gmailService.users().messages().untrash(user, emailId).execute()
+            
+            // Remove INBOX label to force it to Archive
+            val modifyRequest = com.google.api.services.gmail.model.ModifyMessageRequest().setRemoveLabelIds(listOf("INBOX"))
+            gmailService.users().messages().modify(user, emailId, modifyRequest).execute()
+        }
+    }
+
+    private suspend fun labelAndDownload(email: EmailData, labelName: String) {
+        try {
+            val labelId = getOrCreateLabel(labelName)
+            
+            // Applica etichetta
+            val modifyRequest = ModifyMessageRequest().setAddLabelIds(listOf(labelId))
+            executeWithBackoff {
+                gmailService.users().messages().modify(user, email.id, modifyRequest).execute()
+            }
+    
+            // Scarica allegati
+            if (email.haAllegati) {
+                val message = executeWithBackoff {
+                    gmailService.users().messages().get(user, email.id).execute()
+                }
+                
+                message?.payload?.parts?.forEach { part ->
+                    if (!part.filename.isNullOrEmpty() && part.body?.attachmentId != null) {
+                        val attachment = executeWithBackoff {
+                            gmailService.users().messages().attachments().get(user, email.id, part.body.attachmentId).execute()
+                        }
+                        if (attachment != null) {
+                            val fileData = attachment.decodeData()
+                            val categoryDir = File(attachmentsDir, labelName.replace(Regex("[\\\\/:*?\"<>|]"), "_"))
+                            if (!categoryDir.exists()) categoryDir.mkdirs()
+                            
+                            val safeFilename = part.filename.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+                            val destFile = File(categoryDir, "${email.id}_$safeFilename")
+                            destFile.writeBytes(fileData)
+                            
+                            com.michelelopsdev.gfa.utils.AppLogger.info("Allegato organizzato: $safeFilename in ${categoryDir.name}")
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            com.michelelopsdev.gfa.utils.AppLogger.error("Errore nell'applicazione dell'etichetta o scaricamento per email ${email.id}", e)
         }
     }
 
@@ -259,5 +310,10 @@ class GmailTriageService(
             }
         }
         return null
+    }
+
+    private fun containsCodiceFiscale(text: String): Boolean {
+        val regex = Regex("\\b[A-Z]{6}\\d{2}[A-Z]\\d{2}[A-Z]\\d{3}[A-Z]\\b", RegexOption.IGNORE_CASE)
+        return regex.containsMatchIn(text)
     }
 }

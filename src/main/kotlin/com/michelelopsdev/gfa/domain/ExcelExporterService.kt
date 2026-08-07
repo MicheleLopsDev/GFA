@@ -7,11 +7,12 @@ import kotlinx.serialization.json.Json
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import java.io.File
 import java.io.FileOutputStream
+import com.michelelopsdev.gfa.utils.AppLogger
 
 class ExcelExporterService {
     private val outputDir = File(System.getProperty("user.home"), ".gfa/output")
     // Salviamo nella cartella del progetto per evitare conflitti con OneDrive
-    private val exportFile = File(System.getProperty("user.dir"), "GFA_Export_Email.xlsx")
+    private val exportFile = File(System.getProperty("user.home") + "/Desktop", "GFA_Export_Email.xlsx")
 
     suspend fun exportToExcel(): String? = withContext(Dispatchers.IO) {
         if (!outputDir.exists()) return@withContext null
@@ -60,14 +61,14 @@ class ExcelExporterService {
                 workbook.write(out)
             }
         }
-        println("Export completato! File salvato in: ${exportFile.absolutePath}")
+        AppLogger.info("Export completato! File salvato in: ${exportFile.absolutePath}")
         return@withContext exportFile.absolutePath
     }
 
     suspend fun exportSpecificEmailsToExcel(emails: List<EmailData>, fileName: String = "Email_Importanti_Salvate.xlsx"): String? = withContext(Dispatchers.IO) {
         if (emails.isEmpty()) return@withContext null
         
-        val customExportFile = File(System.getProperty("user.dir"), fileName)
+        val customExportFile = File(System.getProperty("user.home") + "/Desktop", fileName)
         
         XSSFWorkbook().use { workbook ->
             val sheet = workbook.createSheet("Email Importanti")
@@ -101,7 +102,7 @@ class ExcelExporterService {
             }
         }
         
-        println("Export personalizzato completato! File salvato in: ${customExportFile.absolutePath}")
+        AppLogger.info("Export personalizzato completato! File salvato in: ${customExportFile.absolutePath}")
         return@withContext customExportFile.absolutePath
     }
 }

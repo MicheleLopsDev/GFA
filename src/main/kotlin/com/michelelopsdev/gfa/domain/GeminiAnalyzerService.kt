@@ -1,6 +1,7 @@
 package com.michelelopsdev.gfa.domain
 
 import com.michelelopsdev.gfa.data.model.EmailData
+import com.michelelopsdev.gfa.utils.AppLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
@@ -31,7 +32,7 @@ class GeminiAnalyzerService {
         val jsonFiles = outputDir.listFiles { _, name -> name.startsWith("emails_part_") && name.endsWith(".json") }
             ?.filter { it.length() > 0 } ?: throw IllegalStateException("Nessun dato trovato.")
 
-        println("Fase 2: Aggregazione dati locali in corso...")
+        AppLogger.info("Fase 2: Aggregazione dati locali in corso...")
 
         val domainCount = mutableMapOf<String, Int>()
         val domainSubjects = mutableMapOf<String, MutableSet<String>>()
@@ -81,6 +82,7 @@ class GeminiAnalyzerService {
             - Documenti bancari, finanziari o assicurativi.
             - Documenti personali.
             - Tutto quello che riguarda la salute, come comunicazioni mediche, referti o prenotazioni.
+            - Email che contengono un Codice Fiscale italiano nel testo o nell'oggetto.
             
             Il JSON DEVE avere questa struttura esatta, senza markdown o testo aggiuntivo (solo il JSON nudo e crudo):
             {
@@ -110,7 +112,7 @@ class GeminiAnalyzerService {
 
         for (modelName in modelsToTry) {
             val progressMsg = "⏳ Tentativo con il modello: $modelName..."
-            println(progressMsg)
+            AppLogger.info(progressMsg)
             onProgress?.invoke(progressMsg)
             
             val requestBody = buildJsonObject {
@@ -136,14 +138,14 @@ class GeminiAnalyzerService {
                 
                 val cleanJson = outputText.removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
                 rulesFile.writeText(cleanJson)
-                println("File regole di pulizia (Fase 2) generato in: ${rulesFile.absolutePath} usando $modelName")
+                AppLogger.info("File regole di pulizia (Fase 2) generato in: ${rulesFile.absolutePath} usando $modelName")
                 successfulModel = modelName
                 onLog?.invoke(prompt, cleanJson, successfulModel, failedModels)
                 success = true
                 break // Esce dal loop se ha avuto successo
             } else {
                 lastError = "Errore $modelName: ${response.statusCode()}"
-                println(lastError)
+                AppLogger.error(lastError)
                 failedModels.add("$modelName (KO: ${response.statusCode()})")
                 onLog?.invoke(prompt, lastError, null, failedModels)
                 // Se c'è errore, continua il loop col prossimo modello

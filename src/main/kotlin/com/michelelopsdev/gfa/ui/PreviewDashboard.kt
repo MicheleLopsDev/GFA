@@ -11,6 +11,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -66,13 +69,19 @@ fun PreviewDashboard(
     executingText: String = "Elaborazione...",
     onSecondaryAction: (() -> Unit)? = null,
     secondaryButtonText: String = "Azione Secondaria",
-    coroutineScope: CoroutineScope
+    coroutineScope: CoroutineScope,
+    selectionColor: Color = Color(0x33F44336), // Rosso chiaro di default
+    highlightedEmails: Set<String> = emptySet(),
+    highlightColor: Color = Color(0x3303A9F4), // Azzurro chiaro di default
+    headerExtraText: String = ""
 ) {
     var filterTitolo by remember { mutableStateOf("") }
     var filterMittente by remember { mutableStateOf("") }
     var filterDataDa by remember { mutableStateOf("") }
     var filterDataA by remember { mutableStateOf("") }
     var selectedEmailBody by remember { mutableStateOf<EmailData?>(null) }
+    var isExpanded by remember { mutableStateOf(false) }
+    var isSpammerCollapsed by remember { mutableStateOf(true) }
 
     val filteredEmails = remember(emails, filterTitolo, filterMittente, filterDataDa, filterDataA) {
         val daDate = parseFilterDate(filterDataDa)
@@ -117,58 +126,72 @@ fun PreviewDashboard(
     val pagedEmails = sortedEmails.drop(safeCurrentPage * pageSize).take(pageSize)
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        AiRequestBanner()
-        
-        // Header
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("Anteprima Pulizia (Trash)", color = MaterialTheme.colorScheme.onBackground, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            Text("${filteredEmails.size} email trovate", color = Color(0xFFE91E63), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
-        }
-        
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Barra di Ricerca
-        Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(value = filterMittente, onValueChange = { filterMittente = it; onPageChanged(0) }, label = { Text("Cerca Mittente") }, modifier = Modifier.weight(1f), singleLine = true)
-                OutlinedTextField(value = filterTitolo, onValueChange = { filterTitolo = it; onPageChanged(0) }, label = { Text("Cerca Titolo") }, modifier = Modifier.weight(1f), singleLine = true)
-                OutlinedTextField(value = filterDataDa, onValueChange = { filterDataDa = it; onPageChanged(0) }, label = { Text("Data Da (gg/mm/aaaa)") }, modifier = Modifier.weight(1f), singleLine = true)
-                OutlinedTextField(value = filterDataA, onValueChange = { filterDataA = it; onPageChanged(0) }, label = { Text("Data A (gg/mm/aaaa)") }, modifier = Modifier.weight(1f), singleLine = true)
+        if (!isExpanded) {
+            AiRequestBanner()
+            
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Start,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("${filteredEmails.size} email trovate in totale $headerExtraText", color = Color(0xFFE91E63), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
             }
-        }
-        
-        Spacer(modifier = Modifier.height(16.dp))
+            
+            Spacer(modifier = Modifier.height(16.dp))
 
-        // Top 10 Spammers
-        Surface(
-            color = MaterialTheme.colorScheme.surface,
-            shape = RoundedCornerShape(8.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("Top 10 Spammer (Indirizzi con più email)", color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    val half = (topSenders.size + 1) / 2
-                    Column(modifier = Modifier.weight(1f)) {
-                        topSenders.take(half).forEach { (sender, count) ->
-                            Text("$sender : $count", color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp)
-                        }
+            // Barra di Ricerca
+            Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(value = filterMittente, onValueChange = { filterMittente = it; onPageChanged(0) }, label = { Text("Cerca Mittente") }, modifier = Modifier.weight(1f), singleLine = true)
+                    OutlinedTextField(value = filterTitolo, onValueChange = { filterTitolo = it; onPageChanged(0) }, label = { Text("Cerca Titolo") }, modifier = Modifier.weight(1f), singleLine = true)
+                    OutlinedTextField(value = filterDataDa, onValueChange = { filterDataDa = it; onPageChanged(0) }, label = { Text("Data Da (gg/mm/aaaa)") }, modifier = Modifier.weight(1f), singleLine = true)
+                    OutlinedTextField(value = filterDataA, onValueChange = { filterDataA = it; onPageChanged(0) }, label = { Text("Data A (gg/mm/aaaa)") }, modifier = Modifier.weight(1f), singleLine = true)
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Top 10 Spammers
+            Surface(
+                color = MaterialTheme.colorScheme.surface,
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth().clickable { isSpammerCollapsed = !isSpammerCollapsed }
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Top 10 Spammer (Indirizzi con più email)", color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Icon(
+                            imageVector = if (isSpammerCollapsed) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
+                            contentDescription = "Espandi/Comprimi",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
                     }
-                    Column(modifier = Modifier.weight(1f)) {
-                        topSenders.drop(half).forEach { (sender, count) ->
-                            Text("$sender : $count", color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp)
+                    if (!isSpammerCollapsed) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            val half = (topSenders.size + 1) / 2
+                            Column(modifier = Modifier.weight(1f)) {
+                                topSenders.take(half).forEach { (sender, count) ->
+                                    Text("$sender : $count", color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp)
+                                }
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                topSenders.drop(half).forEach { (sender, count) ->
+                                    Text("$sender : $count", color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp)
+                                }
+                            }
                         }
                     }
                 }
             }
-        }
 
-        Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+        }
 
         // Action Buttons
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -205,7 +228,7 @@ fun PreviewDashboard(
                 }
             }
             
-            // Seleziona tutto / Deseleziona tutto
+            // Seleziona tutto / Deseleziona tutto / Espandi
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedButton(
                     onClick = { onSelectionChanged(selectedEmails + filteredEmails.map { it.id }.toSet()) }
@@ -216,6 +239,11 @@ fun PreviewDashboard(
                     onClick = { onSelectionChanged(selectedEmails - filteredEmails.map { it.id }.toSet()) }
                 ) {
                     Text("Deseleziona Tutte")
+                }
+                OutlinedButton(
+                    onClick = { isExpanded = !isExpanded }
+                ) {
+                    Text(if (isExpanded) "↖ Riduci" else "↘ Espandi Tabella")
                 }
             }
         }
@@ -299,12 +327,19 @@ fun PreviewDashboard(
                 modifier = Modifier.fillMaxSize()
             ) {
                 items(pagedEmails) { email ->
+                    val isSelected = selectedEmails.contains(email.id)
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                            .background(
+                                if (isSelected) selectionColor
+                                else if (highlightedEmails.contains(email.id)) highlightColor
+                                else Color.Transparent
+                            )
+                            .padding(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Checkbox(
-                            checked = selectedEmails.contains(email.id),
+                            checked = isSelected,
                             onCheckedChange = { checked ->
                                 val newSet = if (checked) selectedEmails + email.id else selectedEmails - email.id
                                 onSelectionChanged(newSet)
@@ -320,10 +355,22 @@ fun PreviewDashboard(
                         
                         Text(
                             email.da, 
-                            modifier = Modifier.weight(2f).onClick(
-                                matcher = PointerMatcher.mouse(PointerButton.Secondary),
-                                onClick = { filterMittente = email.da }
-                            ), 
+                            modifier = Modifier.weight(2f)
+                                .onClick(
+                                    matcher = PointerMatcher.mouse(PointerButton.Secondary),
+                                    onClick = { filterMittente = email.da }
+                                )
+                                .onClick(
+                                    matcher = PointerMatcher.mouse(PointerButton.Primary),
+                                    onClick = {
+                                        val sameSenderEmails = filteredEmails.filter { it.da == email.da }.map { it.id }.toSet()
+                                        if (selectedEmails.containsAll(sameSenderEmails)) {
+                                            onSelectionChanged(selectedEmails - sameSenderEmails)
+                                        } else {
+                                            onSelectionChanged(selectedEmails + sameSenderEmails)
+                                        }
+                                    }
+                                ), 
                             color = MaterialTheme.colorScheme.onBackground, 
                             maxLines = 1, 
                             overflow = TextOverflow.Ellipsis
